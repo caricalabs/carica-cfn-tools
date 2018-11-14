@@ -7,6 +7,8 @@ import tempfile
 import urllib.parse
 
 import boto3
+import cfn_flip
+import cfn_tools
 import yaml
 
 from carica_cfn_tools.utils import print_fs_tree, open_url_in_browser, get_s3_https_url
@@ -19,11 +21,12 @@ class CaricaCfnToolsError(Exception):
 
 
 class StackConfig(object):
-    def __init__(self, stack_config_file):
+    def __init__(self, stack_config_file, base_template=None, extras=None):
         self.stack_config_file = stack_config_file
-        self._load_stack_config()
+        self.base_template = base_template
+        self._load_stack_config(extras)
 
-    def _load_stack_config(self):
+    def _load_stack_config(self, extras):
         """
         Load the stack config YAML file, validate some settings, and store the results
         in self.
@@ -51,6 +54,8 @@ class StackConfig(object):
             if not isinstance(self.extras, list):
                 raise CaricaCfnToolsError('Top-level key "Extras" must be a list '
                                           '(not a dictionary or other type) if it is present')
+            if extras:
+                self.extras += extras
 
             params = config.get('Parameters', {})
             if not isinstance(params, dict):
@@ -74,11 +79,57 @@ class StackConfig(object):
 
             self.params = [{'ParameterKey': k, 'ParameterValue': val(v)} for k, v in params.items()]
 
-    def _package_template(self):
+    def _load_template(self):
+        """
+        Loads self.template_file, applying any "Carica::*" transforms as necessary.
+
+        :return: the merged template content
+        """
+
+        with open(self.template_path, 'r') as stream:
+            template_str = stream.read()
+
+        # If no base template was specified, we can return right now
+        if not self.base_template:
+            return template_str
+
+        # The rest of this function handles "Carica::*" transforms
+
+        if not os.path.isfile(self.base_template):
+            raise CaricaCfnToolsError(f'Base template "{self.base_template}" not found')
+
+        with open(self.base_template, 'r') as stream:
+            base_str = stream.read()
+
+        template, template_format = cfn_flip.load(template_str)
+        base, _base_format = cfn_flip.load(base_str)
+
+        t_resources = template.get('Resources', {})
+        b_resources = base.get('Resources', {})
+
+        # Replace each resource that references a base resource with a merged value
+        for t_name, t_value in t_resources.items():
+            if t_value.get('Type', None) == 'Carica::BaseResource':
+                b_value = b_resources.get(t_name, None)
+                if b_value is None:
+                    raise CaricaCfnToolsError(
+                        f'Base template {self.base_template} does not contain a resource '
+                        f'named "{t_name}" which is used as a Carica::BaseResource in the '
+                        f'template file "{self.template_path}"')
+                t_resources[t_name] = b_value  # merge(b_value, t_value)
+
+        # Convert back to the original template format
+        if template_format == 'yaml':
+            return cfn_tools.dump_yaml(template)
+        else:
+            return cfn_tools.dump_json(template)
+
+    def _package_template(self, template_content_str):
         """
         Use "aws cloudformation package" to upload referenced objects (but not the template
         itself) to S3.
 
+        :param template_content_str: the template to upload
         :return: the template content with references rewritten to point to correct the S3 locations
         """
 
@@ -87,10 +138,11 @@ class StackConfig(object):
         with tempfile.TemporaryDirectory(prefix='stack_') as temp_dir:
             stack_config_dir = os.path.dirname(self.stack_config_file)
 
-            # Copy the template file itself
+            # Write the template file itself
             template_file_name = os.path.basename(self.template_path)
             temp_template_file_name = os.path.join(temp_dir, template_file_name)
-            shutil.copyfile(self.template_path, temp_template_file_name)
+            with open(temp_template_file_name, 'w') as stream:
+                stream.write(template_content_str)
 
             # Copy all the referenced extras
             for extra in self.extras:
@@ -109,25 +161,33 @@ class StackConfig(object):
             print(f'Package directory contents ({temp_dir}):')
             print_fs_tree(temp_dir)
 
-            # Let the AWS CLI package it
-            args = [
-                'aws', 'cloudformation', 'package',
-                '--template-file', temp_template_file_name,
-                '--s3-bucket', self.bucket,
-                '--s3-prefix', f'{self.stack_name}/extras',
-            ]
-            print(f'Packaging extras in s3://{self.bucket}/{self.stack_name}/extras')
-            proc = subprocess.Popen(args, cwd=temp_dir, stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE)
-            stdout, stderr = proc.communicate()
+            with tempfile.NamedTemporaryFile() as output_temporary_file:
+                # Let the AWS CLI package it
+                args = [
+                    'aws', 'cloudformation', 'package',
+                    '--template-file', temp_template_file_name,
+                    '--s3-bucket', self.bucket,
+                    '--s3-prefix', f'{self.stack_name}/extras',
+                    '--output-template-file', f'{output_temporary_file.name}',
+                ]
+                print(f'Packaging extras in s3://{self.bucket}/{self.stack_name}/extras')
+                proc = subprocess.Popen(args, cwd=temp_dir, stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE)
+                stdout, stderr = proc.communicate()
+
+                # Read the transformed template.  We have to write it to a file instead of
+                # reading stdin, because the command line can write upload progress messages
+                # to stdin in addition to the template file.
+                with open(output_temporary_file.name, 'r') as stream:
+                    output_template = stream.read()
+
             if proc.returncode != 0:
                 sys.stdout.write(str(stdout, 'utf-8'))
                 sys.stderr.write(str(stderr, 'utf-8'))
                 raise CaricaCfnToolsError('"aws cloudformation package" step failed; see '
                                           'previous output for details')
 
-            # stdout contains the processed YAML template
-            return stdout
+            return output_template
 
     def _upload_template(self, template_content):
         """
@@ -155,8 +215,9 @@ class StackConfig(object):
 
         :return: the HTTPS URL to the processed stack template file in S3
         """
-        stack_yaml = self._package_template()
-        template_key = self._upload_template(stack_yaml)
+        template_content_str = self._load_template()
+        packaged_template_str = self._package_template(template_content_str)
+        template_key = self._upload_template(packaged_template_str)
         template_https_url = get_s3_https_url(self.region, self.bucket, template_key)
         return template_https_url
 
