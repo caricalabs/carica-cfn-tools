@@ -57,6 +57,14 @@ class StackConfig(object):
                 raise CaricaCfnToolsError('Top-level key "Parameters" must be a dictionary '
                                           '(not a list or other type) if it is present')
 
+            # Resolve external parameter values
+            for name, value in params.items():
+                if isinstance(value, dict):
+                    if 'SecretsManager' in value:
+                        params[name] = self._load_secrets_manager_value(value['SecretsManager'])
+                    if 'ParameterStore' in value:
+                        params[name] = self._load_parameter_store_value(value['ParameterStore'])
+
             def val(v):
                 if v is False:
                     return "false"
@@ -173,3 +181,19 @@ class StackConfig(object):
         console_url = f'https://console.aws.amazon.com/cloudformation/home?region={self.region}#' \
                       f'/stacks/{quoted_stack_arn}/changesets/{quoted_change_set_arn}/changes'
         open_url_in_browser(console_url)
+
+    def _load_secrets_manager_value(self, secret_id):
+        ssm = boto3.client('secretsmanager', region_name=self.region)
+        try:
+            return ssm.get_secret_value(SecretId=secret_id)['SecretString']
+        except Exception as e:
+            raise CaricaCfnToolsError(f'Failed to read Secrets Manager secret '
+                                      f'"{secret_id}": {str(e)}')
+
+    def _load_parameter_store_value(self, parameter_name):
+        ssm = boto3.client('ssm', region_name=self.region)
+        try:
+            return ssm.get_parameter(Name=parameter_name, WithDecryption=True)['Parameter']['Value']
+        except Exception as e:
+            raise CaricaCfnToolsError(f'Failed to read SSM Paramter Store parameter '
+                                      f'"{parameter_name}": {str(e)}')

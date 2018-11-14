@@ -11,7 +11,7 @@ if [ ! -d "$BASE/venv" ] ; then
 fi
 
 . "$BASE/venv/bin/activate"
-pip3 -q install -r "$BASE/requirements.txt" --upgrade
+pip3 -q install pip -r "$BASE/requirements.txt" --upgrade
 
 echo "Virtual environment configured at '$BASE/venv'"
 echo

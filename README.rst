@@ -26,3 +26,26 @@ carica-cnf-tools provides the following commands:
 
 #. create-stack: create a stack from a YAML stack config file
 #. update-stack: update an existing stack from a YAML stack config file
+
+
+Sample Stack Config
+-------------------
+::
+
+    Region: us-east-1
+    Bucket: mycorp-cfn-us-east-1
+    Name: WarehouseApp
+    Template: ../templates/warehouse-app.yml
+    Parameters:
+      # Normal parameter values can include strings, numbers, booleans, etc.
+      Stage: dev
+      TableReadCapacityUnits: 10
+      TableWriteCapacityUnits: 5
+      AdminPassword:
+        # A parameter with a "ParameterStore" sub-key will be resolved to the
+        # SSM Parameter Store parameter with that name.
+        ParameterStore: dev.warehouseapp.admin-password
+      PostgreSQLPassword:
+        # A parameter with a "SecretsManager" sub-key will be resolved to the
+        # Secrets Manager secret with that ID.
+        SecretsManager: dev.warehouseapp.postgresql-password
