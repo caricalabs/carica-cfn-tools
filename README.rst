@@ -15,7 +15,7 @@ able to run and test it.
 #. Run ``./vinstall``
 #. Activate the virtualenv by running ``. ./venv/bin/activate``
 #. Run modules with a main() function like
-   ``python -m carica_cfn_tools.create_stack``
+   ``python3 -m carica_cfn_tools.create_stack``
 
 Usage
 -----
