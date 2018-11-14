@@ -1,4 +1,4 @@
-carica-cfn-tools - Command line tools to manage CloudFormation stack configuration
+carica-cfn-tools - Tools to manage CloudFormation stack configuration
 ==================================================================================
 
 Simple command line tools to create and update CloudFormation stacks that
@@ -14,13 +14,15 @@ able to run and test it.
 
 #. Run ``./vinstall``
 #. Activate the virtualenv by running ``. ./venv/bin/activate``
-#. Run modules with a main() function like
-   ``python3 -m carica_cfn_tools.create_stack``
+#. The ``console_scripts`` listed in ``setup.py`` are now in your path, so you
+   can simply run them like:
+
+   ``create-stack ...``
 
 Usage
 -----
 
-carica-cnf-tools supports the following commands:
+carica-cnf-tools provides the following commands:
 
 #. create-stack: create a stack from a YAML stack config file
 #. update-stack: update an existing stack from a YAML stack config file

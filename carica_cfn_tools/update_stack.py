@@ -1,20 +1,20 @@
-#!/usr/bin/env python3
-#
-# Creates a change set that updates an existing CloudFormation, then opens a web browser
-# so it can be manually reviewed and executed.
+"""
+Creates a change set that updates an existing CloudFormation, then opens a web browser
+so it can be manually reviewed and executed.
+"""
+import sys
 
 import click
 
-from carica_cfn_tools.stack_config import StackConfig
+from carica_cfn_tools.stack_config import StackConfig, CaricaCfnToolsError
 
 
 @click.command()
-@click.option('--templates-dir', '-t', default=StackConfig.default_template_dir())
 @click.argument('stack_config_file')
-def run(stack_config_file, templates_dir=None):
-    config = StackConfig(stack_config_file, templates_dir=templates_dir)
-    config.create_change_set(change_set_type='UPDATE')
-
-
-if __name__ == '__main__':
-    run()
+def main(stack_config_file):
+    try:
+        config = StackConfig(stack_config_file)
+        config.create_change_set(change_set_type='UPDATE')
+    except CaricaCfnToolsError as e:
+        print('ERROR: ' + str(e), file=sys.stderr)
+        sys.exit(1)

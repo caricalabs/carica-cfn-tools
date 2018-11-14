@@ -25,7 +25,7 @@ setup(
     # https://packaging.python.org/en/latest/single_source_version.html
     version='1.0',
 
-    description='Command line tools to manage CloudFormation stack configuration',
+    description='Tools to manage CloudFormation stack configuration',
     long_description=long_description,
 
     # The project's main homepage.
