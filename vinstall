@@ -1,0 +1,19 @@
+#!/bin/sh
+# 
+# Create a virtualenv at ./venv and install dependencies to it.  Useful
+# for development.
+
+set -e
+BASE=$(dirname "$0")
+
+if [ ! -d "$BASE/venv" ] ; then
+  virtualenv --python=python3 "$BASE/venv"
+fi
+
+. "$BASE/venv/bin/activate"
+pip3 -q install -r "$BASE/requirements.txt" --upgrade
+
+echo "Virtual environment configured at '$BASE/venv'"
+echo
+echo "Run '. $BASE/venv/bin/activate' to activate the virtualenv."
+

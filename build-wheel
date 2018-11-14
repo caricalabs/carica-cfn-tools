@@ -1,0 +1,4 @@
+#!/bin/sh
+#
+# Builds a binary "wheel" dist file that you can simply "pip install".
+python setup.py clean bdist_wheel
