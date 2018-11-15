@@ -36,9 +36,33 @@ def open_url_in_browser(url):
 
 
 def update_dict(d, u):
+    """
+    Updates a dict recursively from another dict.
+    """
     for k, v in u.items():
         if isinstance(v, collections.Mapping):
             d[k] = update_dict(d.get(k, {}), v)
         else:
             d[k] = v
     return d
+
+
+def copy_dict(value, impl=dict):
+    """
+    Perform a deep copy of a dict using the specified impl for each new dict constructed.
+    Preserves the order of items as read from the source dict.
+
+    :param value: the dict value to copy
+    :param impl: the function to call to create new dicts
+    :return: a deep copy of value, using impl for each dict constructed along the way
+    """
+    if isinstance(value, tuple):
+        return (copy_dict(e) for e in value)
+    if isinstance(value, list):
+        return [copy_dict(e) for e in value]
+    if isinstance(value, dict):
+        new_value = impl()
+        for k, v in value.items():
+            new_value[k] = copy_dict(v, impl=impl)
+        return new_value
+    return value

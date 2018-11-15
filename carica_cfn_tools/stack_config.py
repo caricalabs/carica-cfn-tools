@@ -1,9 +1,11 @@
+import copy
 import datetime
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+from collections import OrderedDict
 
 import boto3
 import cfn_flip
@@ -12,7 +14,7 @@ from samtranslator.translator.managed_policy_translator import ManagedPolicyLoad
 from samtranslator.translator.transform import transform
 
 from carica_cfn_tools.utils import open_url_in_browser, get_s3_https_url, update_dict, \
-    get_cfn_console_url
+    get_cfn_console_url, copy_dict
 
 STACK_CAPABILITIES = ['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM']
 BASE_RESOURCE_TRANSFORM = 'Carica::BaseResource'
@@ -105,16 +107,16 @@ class Stack(object):
 
     def _apply_carica_transforms(self, template_data, base_data):
         """
-        Processes any "Carica::*" transforms in template_data, updating it in place
-        from base_template data.
+        Processes any "Carica::*" transforms in template_data using base_data.
 
         :param template_data: the template to process transforms in
         :param base_data: the template to read base data from
-        :return: template_data
+        :return: the transformed template
         """
 
-        template_data = self._normalize_template_format(template_data)
-        base_data = self._normalize_template_format(base_data)
+        # Make copies so we don't alter the inputs
+        template_data = self._normalize_template_format(copy.deepcopy(template_data))
+        base_data = self._normalize_template_format(copy.deepcopy(base_data))
 
         t_resources = template_data.get('Resources', {})
         b_resources = base_data.get('Resources', {})
@@ -146,7 +148,9 @@ class Stack(object):
 
         # Prepare a temporary directory to run the package operation from, so relative
         # paths can be expanded using the correct "extras" listed in the stack config file.
-        with tempfile.TemporaryDirectory(prefix='stack_') as temp_dir:
+        temp_dir = None
+        try:
+            temp_dir = tempfile.mkdtemp(prefix='stack_')
             stack_config_dir = os.path.dirname(self.config_file)
 
             # Write the template file itself
@@ -192,15 +196,21 @@ class Stack(object):
                 sys.stderr.write(str(stdout, 'utf-8'))
                 sys.stderr.write(str(stderr, 'utf-8'))
 
-                print(f'\nPackaging temp directory contents:', file=sys.stderr)
+                print(f'\nPackaging temp directory preserved:', file=sys.stderr)
                 os.system(f'ls -laR {temp_dir} 1>&2')
                 print('\n', file=sys.stderr)
+
+                # Prevent the temp dir from getting removed
+                temp_dir = None
 
                 raise CaricaCfnToolsError('"aws cloudformation package" step failed; see '
                                           'previous output for details')
 
             p_template_data, p_template_type = cfn_flip.load(p_template_str)
             return p_template_str, p_template_type, p_template_data
+        finally:
+            if temp_dir:
+                shutil.rmtree(temp_dir)
 
     def _upload_template(self, template_str):
         """
@@ -214,14 +224,12 @@ class Stack(object):
         base, ext = os.path.splitext(self.template)
         if not ext:
             ext = '.txt'
+
         key = f'{self.stack_name}/{self.stack_name}{ext}'
-        template_s3_uri = f's3://{self.bucket}/{key}'
-
         s3.put_object(Bucket=self.bucket, Key=key, Body=bytes(template_str, 'utf-8'))
-
         return key
 
-    def _pubish(self):
+    def _publish(self):
         """
         Prepare, process, and upload all stack artifacts and the template for this config.
 
@@ -258,6 +266,7 @@ class Stack(object):
 
         print(f'Uploading template...')
         template_key = self._upload_template(p_template_str)
+        print(f'Template uploaded at s3://{self.bucket}/{template_key}')
 
         # Return the full HTTPS URL to the template in the S3 bucket
         return get_s3_https_url(self.region, self.bucket, template_key)
@@ -266,7 +275,7 @@ class Stack(object):
         # Change set names are quite restrictive (must start with a letter, no colons).
         change_set_name = datetime.datetime.utcnow().strftime('C-%Y-%m-%d-%H%M%SZ')
 
-        template_https_url = self._pubish()
+        template_https_url = self._publish()
 
         cfn = boto3.client('cloudformation', region_name=self.region)
 
@@ -306,8 +315,12 @@ class Stack(object):
         :param template_data: the template data to convert from SAM if convert_sam_to_cfn is enabled
         :return: the normalized template data
         """
-        if self.convert_sam_to_cfn and template_data.get(
-                'Transform') == 'AWS::Serverless-2016-10-31':
+        if self.convert_sam_to_cfn and template_data.get('Transform') \
+                == 'AWS::Serverless-2016-10-31':
+            # Make a deep copy of the dict that's mutable (ODict, the type that cfn_flip
+            # uses internally, overrides items() to return a new list each time, which foils
+            # the transformer).
+            template_data = copy_dict(template_data, impl=OrderedDict)
             return transform(template_data, {}, self.managed_policy_loader)
         else:
             return template_data
