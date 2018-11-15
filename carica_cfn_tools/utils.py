@@ -1,6 +1,7 @@
-import os
+import collections
 import subprocess
 import sys
+import urllib.parse
 
 
 def get_s3_https_url(region, bucket, key):
@@ -9,6 +10,19 @@ def get_s3_https_url(region, bucket, key):
     else:
         host = 's3-' + region
     return f'https://{host}.amazonaws.com/{bucket}/{key}'
+
+
+def get_cfn_console_url(region, stack_arn, change_set_arn):
+    """
+    Get is a URL for the "new" (as of 2018-11) CloudFormation console to view
+    the specified change set ARN in the specified stack.
+    """
+    # Must quote with "safe" set to exclude '/' so slashes in the ARNs get escaped as well.
+    quoted_stack_arn = urllib.parse.quote(stack_arn, safe='')
+    quoted_change_set_arn = urllib.parse.quote(change_set_arn, safe='')
+
+    return f'https://console.aws.amazon.com/cloudformation/home?region={region}#' \
+           f'/stacks/{quoted_stack_arn}/changesets/{quoted_change_set_arn}/changes'
 
 
 def open_url_in_browser(url):
@@ -21,8 +35,10 @@ def open_url_in_browser(url):
     subprocess.Popen([command, url]).communicate()
 
 
-def print_fs_tree(path):
-    for root, _, files in os.walk(path):
-        for file in files:
-            relative_path = os.path.join(root, file)[len(path) + 1:]
-            print('  ' + relative_path)
+def update_dict(d, u):
+    for k, v in u.items():
+        if isinstance(v, collections.Mapping):
+            d[k] = update_dict(d.get(k, {}), v)
+        else:
+            d[k] = v
+    return d

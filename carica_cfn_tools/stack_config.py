@@ -4,50 +4,57 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import urllib.parse
 
 import boto3
 import cfn_flip
-import cfn_tools
 import yaml
+from samtranslator.translator.managed_policy_translator import ManagedPolicyLoader
+from samtranslator.translator.transform import transform
 
-from carica_cfn_tools.utils import print_fs_tree, open_url_in_browser, get_s3_https_url
+from carica_cfn_tools.utils import open_url_in_browser, get_s3_https_url, update_dict, \
+    get_cfn_console_url
 
 STACK_CAPABILITIES = ['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM']
+BASE_RESOURCE_TRANSFORM = 'Carica::BaseResource'
 
 
 class CaricaCfnToolsError(Exception):
     pass
 
 
-class StackConfig(object):
-    def __init__(self, stack_config_file, base_template=None, extras=None):
-        self.stack_config_file = stack_config_file
+class Stack(object):
+    def __init__(self, config_file, base_template=None, extras=None, convert_sam_to_cfn=False):
+        self.convert_sam_to_cfn = convert_sam_to_cfn
+        self.config_file = config_file
         self.base_template = base_template
         self._load_stack_config(extras)
+
+        # For un-SAM'ing templates
+        iam = boto3.client('iam', region_name=self.region)
+        self.managed_policy_loader = ManagedPolicyLoader(iam)
 
     def _load_stack_config(self, extras):
         """
         Load the stack config YAML file, validate some settings, and store the results
         in self.
         """
-        if not os.path.isfile(self.stack_config_file):
-            raise CaricaCfnToolsError(f'Stack config file "{self.stack_config_file}" not found')
+        if not os.path.isfile(self.config_file):
+            raise CaricaCfnToolsError(f'Stack config file "{self.config_file}" not found')
 
-        config_dir = os.path.dirname(self.stack_config_file)
-        with open(self.stack_config_file, 'r') as stream:
+        config_dir = os.path.dirname(self.config_file)
+        with open(self.config_file, 'r') as stream:
             config = yaml.load(stream)
             for attr in ['Region', 'Bucket', 'Name', 'Template']:
                 if attr not in config:
-                    raise CaricaCfnToolsError(f'Stack config file "{self.stack_config_file}" '
+                    raise CaricaCfnToolsError(f'Stack config file "{self.config_file}" '
                                               f'is missing the required top-level key "{attr}"')
             self.region = config['Region']
             self.bucket = config['Bucket']
             self.stack_name = config['Name']
 
-            self.template_path = os.path.join(config_dir, config['Template'])
-            if not os.path.isfile(self.template_path):
-                raise CaricaCfnToolsError(f'Referenced template file "{self.template_path}" '
+            self.template = os.path.join(config_dir, config['Template'])
+            if not os.path.isfile(self.template):
+                raise CaricaCfnToolsError(f'Referenced template file "{self.template}" '
                                           f'does not exist')
 
             self.extras = config.get('Extras', [])
@@ -79,70 +86,74 @@ class StackConfig(object):
 
             self.params = [{'ParameterKey': k, 'ParameterValue': val(v)} for k, v in params.items()]
 
-    def _load_template(self):
+    def _load_template(self, template_path):
         """
-        Loads self.template_file, applying any "Carica::*" transforms as necessary.
+        Loads self.template_file, applying any "Carica::*" transforms if specified.
 
-        :return: the merged template content
+        :return: a tuple containing the template as a string, the format of that template
+        (yaml or json), and the structured template data dict
         """
 
-        with open(self.template_path, 'r') as stream:
+        if not os.path.isfile(template_path):
+            raise CaricaCfnToolsError(f'Template file "{template_path}" not found')
+
+        with open(template_path, 'r') as stream:
             template_str = stream.read()
 
-        # If no base template was specified, we can return right now
-        if not self.base_template:
-            return template_str
+        template_data, template_type = cfn_flip.load(template_str)
+        return template_str, template_type, template_data
 
-        # The rest of this function handles "Carica::*" transforms
+    def _apply_carica_transforms(self, template_data, base_data):
+        """
+        Processes any "Carica::*" transforms in template_data, updating it in place
+        from base_template data.
 
-        if not os.path.isfile(self.base_template):
-            raise CaricaCfnToolsError(f'Base template "{self.base_template}" not found')
+        :param template_data: the template to process transforms in
+        :param base_data: the template to read base data from
+        :return: template_data
+        """
 
-        with open(self.base_template, 'r') as stream:
-            base_str = stream.read()
+        template_data = self._normalize_template_format(template_data)
+        base_data = self._normalize_template_format(base_data)
 
-        template, template_format = cfn_flip.load(template_str)
-        base, _base_format = cfn_flip.load(base_str)
+        t_resources = template_data.get('Resources', {})
+        b_resources = base_data.get('Resources', {})
 
-        t_resources = template.get('Resources', {})
-        b_resources = base.get('Resources', {})
-
-        # Replace each resource that references a base resource with a merged value
         for t_name, t_value in t_resources.items():
-            if t_value.get('Type', None) == 'Carica::BaseResource':
+            # Process "Carica::BaseResource" transforms by merging the template data
+            # into the base data, then replacing the template resource with the result.
+            if t_value.get('Type', None) == BASE_RESOURCE_TRANSFORM:
                 b_value = b_resources.get(t_name, None)
                 if b_value is None:
                     raise CaricaCfnToolsError(
                         f'Base template {self.base_template} does not contain a resource '
-                        f'named "{t_name}" which is used as a Carica::BaseResource in the '
-                        f'template file "{self.template_path}"')
-                t_resources[t_name] = b_value  # merge(b_value, t_value)
+                        f'named "{t_name}" which is used as a {BASE_RESOURCE_TRANSFORM} in the '
+                        f'template file "{self.template}"')
+                del t_value['Type']
+                t_resources[t_name] = update_dict(b_value, t_value)
 
-        # Convert back to the original template format
-        if template_format == 'yaml':
-            return cfn_tools.dump_yaml(template)
-        else:
-            return cfn_tools.dump_json(template)
+        return template_data
 
-    def _package_template(self, template_content_str):
+    def _aws_cfn_package(self, template_str):
         """
         Use "aws cloudformation package" to upload referenced objects (but not the template
         itself) to S3.
 
-        :param template_content_str: the template to upload
-        :return: the template content with references rewritten to point to correct the S3 locations
+        :param template_str: the template whose resources should be uploaded
+        :return: a tuple containing the packaged template as a string, the format of that template
+        (yaml or json), and the structured packaged template data dict
         """
 
         # Prepare a temporary directory to run the package operation from, so relative
         # paths can be expanded using the correct "extras" listed in the stack config file.
         with tempfile.TemporaryDirectory(prefix='stack_') as temp_dir:
-            stack_config_dir = os.path.dirname(self.stack_config_file)
+            stack_config_dir = os.path.dirname(self.config_file)
 
             # Write the template file itself
-            template_file_name = os.path.basename(self.template_path)
+            template_file_name = os.path.basename(self.template)
             temp_template_file_name = os.path.join(temp_dir, template_file_name)
             with open(temp_template_file_name, 'w') as stream:
-                stream.write(template_content_str)
+                stream.write(template_str)
 
             # Copy all the referenced extras
             for extra in self.extras:
@@ -157,12 +168,8 @@ class StackConfig(object):
                 else:
                     shutil.copyfile(extra_path, temp_extra_path)
 
-            # Print a preview of what's in the temp directory to help users correct include typos
-            print(f'Package directory contents ({temp_dir}):')
-            print_fs_tree(temp_dir)
-
             with tempfile.NamedTemporaryFile() as output_temporary_file:
-                # Let the AWS CLI package it
+                # Let the AWS CLI upload everything to S3
                 args = [
                     'aws', 'cloudformation', 'package',
                     '--template-file', temp_template_file_name,
@@ -170,7 +177,6 @@ class StackConfig(object):
                     '--s3-prefix', f'{self.stack_name}/extras',
                     '--output-template-file', f'{output_temporary_file.name}',
                 ]
-                print(f'Packaging extras in s3://{self.bucket}/{self.stack_name}/extras')
                 proc = subprocess.Popen(args, cwd=temp_dir, stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE)
                 stdout, stderr = proc.communicate()
@@ -179,53 +185,91 @@ class StackConfig(object):
                 # reading stdin, because the command line can write upload progress messages
                 # to stdin in addition to the template file.
                 with open(output_temporary_file.name, 'r') as stream:
-                    output_template = stream.read()
+                    p_template_str = stream.read()
 
             if proc.returncode != 0:
-                sys.stdout.write(str(stdout, 'utf-8'))
+                # Write both to stder so it all comes out serially
+                sys.stderr.write(str(stdout, 'utf-8'))
                 sys.stderr.write(str(stderr, 'utf-8'))
+
+                print(f'\nPackaging temp directory contents:', file=sys.stderr)
+                os.system(f'ls -laR {temp_dir} 1>&2')
+                print('\n', file=sys.stderr)
+
                 raise CaricaCfnToolsError('"aws cloudformation package" step failed; see '
                                           'previous output for details')
 
-            return output_template
+            p_template_data, p_template_type = cfn_flip.load(p_template_str)
+            return p_template_str, p_template_type, p_template_data
 
-    def _upload_template(self, template_content):
+    def _upload_template(self, template_str):
         """
         Upload the template to S3 near where the referenced resources were uploaded.
 
-        :param template_content: the template content bytes to upload to S3
+        :param template_str: the template content to upload to S3
         :return: the S3 key where the template was uploaded.
         """
         s3 = boto3.client('s3', region_name=self.region)
 
-        base, ext = os.path.splitext(self.template_path)
+        base, ext = os.path.splitext(self.template)
         if not ext:
             ext = '.txt'
         key = f'{self.stack_name}/{self.stack_name}{ext}'
         template_s3_uri = f's3://{self.bucket}/{key}'
 
-        print(f'Uploading template to {template_s3_uri}')
-        s3.put_object(Bucket=self.bucket, Key=key, Body=template_content)
+        s3.put_object(Bucket=self.bucket, Key=key, Body=bytes(template_str, 'utf-8'))
 
         return key
 
-    def _upload_stack_artifacts(self):
+    def _pubish(self):
         """
-        Prepare, process, and upload all stack artifacts for this config.
+        Prepare, process, and upload all stack artifacts and the template for this config.
 
-        :return: the HTTPS URL to the processed stack template file in S3
+        :return: the HTTPS URL to the template file in S3
         """
-        template_content_str = self._load_template()
-        packaged_template_str = self._package_template(template_content_str)
-        template_key = self._upload_template(packaged_template_str)
-        template_https_url = get_s3_https_url(self.region, self.bucket, template_key)
-        return template_https_url
+        print(f'Loading template...')
+        template_str, template_type, template_data = self._load_template(self.template)
+
+        if self.base_template:
+            print(f'Loading base template...')
+            base_str, base_type, base_data = self._load_template(self.base_template)
+
+            # We must run "aws cloudformation package" on the base template to expand
+            # references to local resources (like a CodeUri of "./deployment.zip") before
+            # we can apply transforms.  Applying transforms may require normalizing
+            # from SAM to CFN and that will fail if "./deployment.zip" is still in the
+            # template.  It doesn't hurt to run "cloudformation package" again later in
+            # this function, since it will compute the same resource names the second time
+            # and skip uploading them based on S3 ETag.
+            print(f'Packaging base template resources...')
+            p_base_str, p_base_type, p_base_data = self._aws_cfn_package(base_str)
+
+            print(f'Applying Carica transforms...')
+            template_data = self._apply_carica_transforms(template_data, p_base_data)
+
+            # Dump the transformed data back to the original template type
+            if template_type == 'yaml':
+                template_str = cfn_flip.dump_yaml(template_data)
+            else:
+                template_str = cfn_flip.dump_json(template_data)
+
+        print(f'Packaging template resources...')
+        p_template_str, p_template_type, p_template_data = self._aws_cfn_package(template_str)
+
+        print(f'Uploading template...')
+        template_key = self._upload_template(p_template_str)
+
+        # Return the full HTTPS URL to the template in the S3 bucket
+        return get_s3_https_url(self.region, self.bucket, template_key)
 
     def create_change_set(self, change_set_type='CREATE'):
+        # Change set names are quite restrictive (must start with a letter, no colons).
         change_set_name = datetime.datetime.utcnow().strftime('C-%Y-%m-%d-%H%M%SZ')
 
-        template_https_url = self._upload_stack_artifacts()
+        template_https_url = self._pubish()
+
         cfn = boto3.client('cloudformation', region_name=self.region)
+
         cfn.validate_template(TemplateURL=template_https_url)
         response = cfn.create_change_set(
             StackName=self.stack_name,
@@ -236,11 +280,7 @@ class StackConfig(object):
             ChangeSetType=change_set_type
         )
 
-        # Must set "safe" to exclude '/' so slashes in the ARNs get escaped as well
-        quoted_stack_arn = urllib.parse.quote(response['StackId'], safe='')
-        quoted_change_set_arn = urllib.parse.quote(response['Id'], safe='')
-        console_url = f'https://console.aws.amazon.com/cloudformation/home?region={self.region}#' \
-                      f'/stacks/{quoted_stack_arn}/changesets/{quoted_change_set_arn}/changes'
+        console_url = get_cfn_console_url(self.region, response['StackId'], response['Id'])
         open_url_in_browser(console_url)
 
     def _load_secrets_manager_value(self, secret_id):
@@ -258,3 +298,16 @@ class StackConfig(object):
         except Exception as e:
             raise CaricaCfnToolsError(f'Failed to read SSM Paramter Store parameter '
                                       f'"{parameter_name}": {str(e)}')
+
+    def _normalize_template_format(self, template_data):
+        """
+        Normalize the template data as SAM or CloudFormation depending on config.
+
+        :param template_data: the template data to convert from SAM if convert_sam_to_cfn is enabled
+        :return: the normalized template data
+        """
+        if self.convert_sam_to_cfn and template_data.get(
+                'Transform') == 'AWS::Serverless-2016-10-31':
+            return transform(template_data, {}, self.managed_policy_loader)
+        else:
+            return template_data
