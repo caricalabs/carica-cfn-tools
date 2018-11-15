@@ -3,7 +3,10 @@ carica-cfn-tools - Tools to manage CloudFormation stack configuration
 
 Simple command line tools to create and update CloudFormation stacks that
 make it easy to version-control both your templates and stack configurations
-in one place.
+in one place.  Supports a few proprietary transforms useful for dynamically
+merging a manually maintained template with a generated template (for example,
+sam.json from "chalice package") that contains resources you'd like to include
+in your main template.
 
 Development
 -----------
@@ -17,16 +20,7 @@ able to run and test it.
 #. The ``console_scripts`` listed in ``setup.py`` are now in your path, so you
    can simply run them like:
 
-   ``create-stack ...``
-
-Usage
------
-
-carica-cnf-tools provides the following commands:
-
-#. create-stack: create a stack from a YAML stack config file
-#. update-stack: update an existing stack from a YAML stack config file
-
+   ``carica-cfn ...``
 
 Sample Stack Config
 -------------------

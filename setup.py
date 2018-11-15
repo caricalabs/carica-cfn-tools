@@ -106,8 +106,7 @@ setup(
     # pip to create the appropriate form of executable for the target platform.
     entry_points={
         'console_scripts': [
-            'create-stack=carica_cfn_tools.create_stack:main',
-            'update-stack=carica_cfn_tools.update_stack:main',
+            'carica-cfn=carica_cfn_tools.cli:cli',
         ],
     },
 )

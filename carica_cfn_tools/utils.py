@@ -2,6 +2,9 @@ import collections
 import subprocess
 import sys
 import urllib.parse
+from collections import OrderedDict
+
+import cfn_flip
 
 
 def get_s3_https_url(region, bucket, key):
@@ -66,3 +69,17 @@ def copy_dict(value, impl=dict):
             new_value[k] = copy_dict(v, impl=impl)
         return new_value
     return value
+
+
+def load_cfn_template(template_str):
+    """
+    Wrapper around cfn_flip.load() (which can load either YAML or JSON templates)
+    but returns a normal OrderedDict.
+    """
+    template_data, template_type = cfn_flip.load(template_str)
+
+    # cfn_flip.load() can return a cfn_tools.odict.ODict, which is almost
+    # immutable because of the way it always returns new lists from items(), but
+    # doesn't error.  Return a copy that's a regular mutable OrderedDict so we can
+    # avoid unpleasant surprises later.
+    return copy_dict(template_data, impl=OrderedDict), template_type

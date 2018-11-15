@@ -10,11 +10,12 @@ from collections import OrderedDict
 import boto3
 import cfn_flip
 import yaml
+from cfn_tools import ODict
 from samtranslator.translator.managed_policy_translator import ManagedPolicyLoader
 from samtranslator.translator.transform import transform
 
 from carica_cfn_tools.utils import open_url_in_browser, get_s3_https_url, update_dict, \
-    get_cfn_console_url, copy_dict
+    get_cfn_console_url, copy_dict, load_cfn_template
 
 STACK_CAPABILITIES = ['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM']
 BASE_RESOURCE_TRANSFORM = 'Carica::BaseResource'
@@ -25,8 +26,10 @@ class CaricaCfnToolsError(Exception):
 
 
 class Stack(object):
-    def __init__(self, config_file, base_template=None, extras=None, convert_sam_to_cfn=False):
+    def __init__(self, config_file, base_template=None, print_template=False, extras=None,
+                 convert_sam_to_cfn=False):
         self.convert_sam_to_cfn = convert_sam_to_cfn
+        self.print_template = print_template
         self.config_file = config_file
         self.base_template = base_template
         self._load_stack_config(extras)
@@ -102,7 +105,7 @@ class Stack(object):
         with open(template_path, 'r') as stream:
             template_str = stream.read()
 
-        template_data, template_type = cfn_flip.load(template_str)
+        template_data, template_type = load_cfn_template(template_str)
         return template_str, template_type, template_data
 
     def _apply_carica_transforms(self, template_data, base_data):
@@ -206,7 +209,7 @@ class Stack(object):
                 raise CaricaCfnToolsError('"aws cloudformation package" step failed; see '
                                           'previous output for details')
 
-            p_template_data, p_template_type = cfn_flip.load(p_template_str)
+            p_template_data, p_template_type = load_cfn_template(p_template_str)
             return p_template_str, p_template_type, p_template_data
         finally:
             if temp_dir:
@@ -255,7 +258,10 @@ class Stack(object):
             print(f'Applying Carica transforms...')
             template_data = self._apply_carica_transforms(template_data, p_base_data)
 
-            # Dump the transformed data back to the original template type
+            # Convert back to the ODict the dumpers require
+            template_data = copy_dict(template_data, impl=ODict)
+
+            # Dump the transformed data as the original template type
             if template_type == 'yaml':
                 template_str = cfn_flip.dump_yaml(template_data)
             else:
@@ -263,6 +269,9 @@ class Stack(object):
 
         print(f'Packaging template resources...')
         p_template_str, p_template_type, p_template_data = self._aws_cfn_package(template_str)
+
+        if self.print_template:
+            print(template_str)
 
         print(f'Uploading template...')
         template_key = self._upload_template(p_template_str)
