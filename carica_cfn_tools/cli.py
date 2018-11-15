@@ -15,13 +15,13 @@ def _create_change_set(stack, change_set_type):
 
 @click.group()
 @click.option('--base-template', '-b',
-              help='A template from which resources can be included with '
-                   '"Type: Carica::BaseResource"')
-@click.option('--print-template/--no-print-template',
-              help='Print the template to stdout uploading it to S3')
-@click.option('--sam-to-cfn/--no-sam-to-cfn',
+              help='A template containing resources that be imported in the '
+                   '"BaseResource" section')
+@click.option('--print-templates/--no-print-templates',
+              help='Print transformed templates to stdout before merging')
+@click.option('--sam-to-cfn/--no-sam-to-cfn', default=True,
               help='Convert the main and base template from SAM to CloudFormation '
-                   'before applying base transforms')
+                   'before applying base transforms (this is usually desired)')
 @click.option('--extra', '-e', multiple=True,
               help='Include this file or directory as a stack config "Extra"')
 @click.argument('stack_config_file')
@@ -29,13 +29,13 @@ def _create_change_set(stack, change_set_type):
 def cli(ctx,
         stack_config_file,
         base_template=None,
-        print_template=False,
-        sam_to_cfn=False,
+        print_templates=False,
+        sam_to_cfn=True,
         extra=None):
     ctx.ensure_object(dict)
     ctx.obj['stack'] = Stack(stack_config_file,
                              base_template=base_template,
-                             print_template=print_template,
+                             print_templates=print_templates,
                              convert_sam_to_cfn=sam_to_cfn,
                              extras=extra)
 

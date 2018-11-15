@@ -5,6 +5,7 @@ import urllib.parse
 from collections import OrderedDict
 
 import cfn_flip
+from cfn_tools import ODict
 
 
 def get_s3_https_url(region, bucket, key):
@@ -42,6 +43,9 @@ def update_dict(d, u):
     """
     Updates a dict recursively from another dict.
     """
+    if not isinstance(d, collections.Mapping):
+        return u
+
     for k, v in u.items():
         if isinstance(v, collections.Mapping):
             d[k] = update_dict(d.get(k, {}), v)
@@ -73,8 +77,7 @@ def copy_dict(value, impl=dict):
 
 def load_cfn_template(template_str):
     """
-    Wrapper around cfn_flip.load() (which can load either YAML or JSON templates)
-    but returns a normal OrderedDict.
+    Wrapper around cfn_flip.load() but returns a normal OrderedDict.
     """
     template_data, template_type = cfn_flip.load(template_str)
 
@@ -83,3 +86,21 @@ def load_cfn_template(template_str):
     # doesn't error.  Return a copy that's a regular mutable OrderedDict so we can
     # avoid unpleasant surprises later.
     return copy_dict(template_data, impl=OrderedDict), template_type
+
+
+def dump_cfn_template_yaml(template_data, clean_up=False, long_form=False):
+    """
+    Wrapper around cfn_flip.dump_yaml() that converts the given template data
+    to the ODict type it expets.
+    """
+    return cfn_flip.dump_yaml(copy_dict(template_data, impl=ODict),
+                              clean_up=clean_up,
+                              long_form=long_form)
+
+
+def dump_cfn_template_json(template_data):
+    """
+    Wrapper around cfn_flip.dump_json() that converts the given template data
+    to the ODict type it expets.
+    """
+    return cfn_flip.dump_json(copy_dict(template_data, impl=ODict))

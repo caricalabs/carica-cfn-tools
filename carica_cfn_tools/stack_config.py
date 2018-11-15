@@ -1,6 +1,7 @@
 import copy
 import datetime
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -8,17 +9,15 @@ import tempfile
 from collections import OrderedDict
 
 import boto3
-import cfn_flip
 import yaml
-from cfn_tools import ODict
 from samtranslator.translator.managed_policy_translator import ManagedPolicyLoader
 from samtranslator.translator.transform import transform
 
 from carica_cfn_tools.utils import open_url_in_browser, get_s3_https_url, update_dict, \
-    get_cfn_console_url, copy_dict, load_cfn_template
+    get_cfn_console_url, copy_dict, load_cfn_template, dump_cfn_template_yaml, \
+    dump_cfn_template_json
 
 STACK_CAPABILITIES = ['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM']
-BASE_RESOURCE_TRANSFORM = 'Carica::BaseResource'
 
 
 class CaricaCfnToolsError(Exception):
@@ -26,10 +25,10 @@ class CaricaCfnToolsError(Exception):
 
 
 class Stack(object):
-    def __init__(self, config_file, base_template=None, print_template=False, extras=None,
+    def __init__(self, config_file, base_template=None, print_templates=False, extras=None,
                  convert_sam_to_cfn=False):
         self.convert_sam_to_cfn = convert_sam_to_cfn
-        self.print_template = print_template
+        self.print_templates = print_templates
         self.config_file = config_file
         self.base_template = base_template
         self._load_stack_config(extras)
@@ -93,7 +92,7 @@ class Stack(object):
 
     def _load_template(self, template_path):
         """
-        Loads self.template_file, applying any "Carica::*" transforms if specified.
+        Loads the template file.
 
         :return: a tuple containing the template as a string, the format of that template
         (yaml or json), and the structured template data dict
@@ -121,22 +120,40 @@ class Stack(object):
         template_data = self._normalize_template_format(copy.deepcopy(template_data))
         base_data = self._normalize_template_format(copy.deepcopy(base_data))
 
+        if self.print_templates:
+            print('Normalized base: ')
+            print('-----------------------------------------------------------------------')
+            print(dump_cfn_template_yaml(base_data))
+            print('-----------------------------------------------------------------------')
+            print('Normalized template: ')
+            print('-----------------------------------------------------------------------')
+            print(dump_cfn_template_yaml(template_data))
+            print('-----------------------------------------------------------------------')
+
+        t_b_resources = template_data.get('BaseResources', {})
         t_resources = template_data.get('Resources', {})
         b_resources = base_data.get('Resources', {})
 
-        for t_name, t_value in t_resources.items():
-            # Process "Carica::BaseResource" transforms by merging the template data
-            # into the base data, then replacing the template resource with the result.
-            if t_value.get('Type', None) == BASE_RESOURCE_TRANSFORM:
-                b_value = b_resources.get(t_name, None)
-                if b_value is None:
-                    raise CaricaCfnToolsError(
-                        f'Base template {self.base_template} does not contain a resource '
-                        f'named "{t_name}" which is used as a {BASE_RESOURCE_TRANSFORM} in the '
-                        f'template file "{self.template}"')
-                del t_value['Type']
-                t_resources[t_name] = update_dict(b_value, t_value)
+        # Convert each "BaseResource" item into a regular resource by finding the
+        # resource in the base template using the BaseResource name as a regular
+        # expression, then merging any properties with the base value.
+        for t_b_name, t_b_value in list(t_b_resources.items()):
+            if not isinstance(t_b_value, dict):
+                raise CaricaCfnToolsError(f'BaseResource "{t_b_name}" must have a dict value '
+                                          '(try {})')
 
+            pat = re.compile(f'^{t_b_name}$')
+            matches = [pat.match(b_key) for b_key in b_resources.keys()]
+            matches = list(filter(None.__ne__, matches))
+            if len(matches) != 1:
+                raise CaricaCfnToolsError(f'Expected template BaseResource "{t_b_name}" to match '
+                                          f'as a regular expression to exactly one resource '
+                                          f'in base template, but matched {len(matches)}')
+            b_name = matches[0].group()
+            b_value = b_resources.get(b_name, {})
+            t_resources[b_name] = update_dict(b_value, t_b_value)
+
+        del template_data['BaseResources']
         return template_data
 
     def _aws_cfn_package(self, template_str):
@@ -258,20 +275,14 @@ class Stack(object):
             print(f'Applying Carica transforms...')
             template_data = self._apply_carica_transforms(template_data, p_base_data)
 
-            # Convert back to the ODict the dumpers require
-            template_data = copy_dict(template_data, impl=ODict)
-
             # Dump the transformed data as the original template type
             if template_type == 'yaml':
-                template_str = cfn_flip.dump_yaml(template_data)
+                template_str = dump_cfn_template_yaml(template_data)
             else:
-                template_str = cfn_flip.dump_json(template_data)
+                template_str = dump_cfn_template_json(template_data)
 
         print(f'Packaging template resources...')
         p_template_str, p_template_type, p_template_data = self._aws_cfn_package(template_str)
-
-        if self.print_template:
-            print(template_str)
 
         print(f'Uploading template...')
         template_key = self._upload_template(p_template_str)
