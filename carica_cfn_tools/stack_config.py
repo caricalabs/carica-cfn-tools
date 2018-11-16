@@ -25,12 +25,12 @@ class CaricaCfnToolsError(Exception):
 
 
 class Stack(object):
-    def __init__(self, config_file, base_template=None, print_templates=False, extras=None,
-                 convert_sam_to_cfn=False):
-        self.convert_sam_to_cfn = convert_sam_to_cfn
-        self.print_templates = print_templates
+    def __init__(self, config_file, include_templates=None, convert_sam_to_cfn=False, extras=None,
+                 verbose=False):
         self.config_file = config_file
-        self.base_template = base_template
+        self.include_templates = include_templates
+        self.convert_sam_to_cfn = convert_sam_to_cfn
+        self.verbose = verbose
         self._load_stack_config(extras)
 
         # For un-SAM'ing templates
@@ -99,7 +99,7 @@ class Stack(object):
         """
 
         if not os.path.isfile(template_path):
-            raise CaricaCfnToolsError(f'Template file "{template_path}" not found')
+            raise CaricaCfnToolsError(f'Template "{template_path}" not found')
 
         with open(template_path, 'r') as stream:
             template_str = stream.read()
@@ -107,53 +107,45 @@ class Stack(object):
         template_data, template_type = load_cfn_template(template_str)
         return template_str, template_type, template_data
 
-    def _apply_carica_transforms(self, template_data, base_data):
+    def _apply_includes(self, template_data, included_data):
         """
-        Processes any "Carica::*" transforms in template_data using base_data.
+        Replaces "IncludedResources" in template_data with items that match the name
+        in included_data.
 
         :param template_data: the template to process transforms in
-        :param base_data: the template to read base data from
+        :param included_data: the template to read included resources from
         :return: the transformed template
         """
 
         # Make copies so we don't alter the inputs
-        template_data = self._normalize_template_format(copy.deepcopy(template_data))
-        base_data = self._normalize_template_format(copy.deepcopy(base_data))
+        template_data = copy.deepcopy(template_data)
+        included_data = copy.deepcopy(included_data)
 
-        if self.print_templates:
-            print('Normalized base: ')
-            print('-----------------------------------------------------------------------')
-            print(dump_cfn_template_yaml(base_data))
-            print('-----------------------------------------------------------------------')
-            print('Normalized template: ')
-            print('-----------------------------------------------------------------------')
-            print(dump_cfn_template_yaml(template_data))
-            print('-----------------------------------------------------------------------')
-
-        t_b_resources = template_data.get('BaseResources', {})
+        t_i_resources = template_data.get('IncludedResources', {})
         t_resources = template_data.get('Resources', {})
-        b_resources = base_data.get('Resources', {})
+        i_resources = included_data.get('Resources', {})
 
-        # Convert each "BaseResource" item into a regular resource by finding the
-        # resource in the base template using the BaseResource name as a regular
-        # expression, then merging any properties with the base value.
-        for t_b_name, t_b_value in list(t_b_resources.items()):
-            if not isinstance(t_b_value, dict):
-                raise CaricaCfnToolsError(f'BaseResource "{t_b_name}" must have a dict value '
-                                          '(try {})')
+        # Try to find each "IncludedResources" item in the included data's "Resources"
+        # section using the included resource's name as a regular expression.  Merge
+        # sub-keys in the main template with the included resource's keys.  Since the
+        # included resource is removed if a match is found, the first included template
+        # with a match "wins".
+        for t_i_key_pattern, t_i_value in list(t_i_resources.items()):
+            if not isinstance(t_i_value, dict):
+                raise CaricaCfnToolsError(f'IncludedResources item "{t_i_key_pattern}" must have a '
+                                          'dict value (use {} for empty)')
 
-            pat = re.compile(f'^{t_b_name}$')
-            matches = [pat.match(b_key) for b_key in b_resources.keys()]
-            matches = list(filter(None.__ne__, matches))
-            if len(matches) != 1:
-                raise CaricaCfnToolsError(f'Expected template BaseResource "{t_b_name}" to match '
-                                          f'as a regular expression to exactly one resource '
-                                          f'in base template, but matched {len(matches)}')
-            b_name = matches[0].group()
-            b_value = b_resources.get(b_name, {})
-            t_resources[b_name] = update_dict(b_value, t_b_value)
+            pat = re.compile(f'^{t_i_key_pattern}$')
+            for i_key in i_resources.keys():
+                if pat.match(i_key):
+                    if self.verbose:
+                        print(
+                            f'IncludedResources pattern "{pat.pattern}" matches resource "{i_key}"')
+                    i_value = i_resources.get(i_key, {})
+                    t_resources[i_key] = update_dict(i_value, t_i_value)
+                    del t_i_resources[t_i_key_pattern]
+                    break
 
-        del template_data['BaseResources']
         return template_data
 
     def _aws_cfn_package(self, template_str):
@@ -217,8 +209,10 @@ class Stack(object):
                 sys.stderr.write(str(stderr, 'utf-8'))
 
                 print(f'\nPackaging temp directory preserved:', file=sys.stderr)
+                sys.stderr.flush()
                 os.system(f'ls -laR {temp_dir} 1>&2')
                 print('\n', file=sys.stderr)
+                sys.stderr.flush()
 
                 # Prevent the temp dir from getting removed
                 temp_dir = None
@@ -258,24 +252,57 @@ class Stack(object):
         print(f'Loading template...')
         template_str, template_type, template_data = self._load_template(self.template)
 
-        if self.base_template:
-            print(f'Loading base template...')
-            base_str, base_type, base_data = self._load_template(self.base_template)
+        # Convert from SAM to CFN if desired
+        template_data = self._normalize_template_format(template_data)
 
-            # We must run "aws cloudformation package" on the base template to expand
+        if self.verbose:
+            print(f'Stack template "{os.path.abspath(self.template)}": ')
+            print('-----------------------------------------------------------------------')
+            print(dump_cfn_template_yaml(template_data))
+            print('-----------------------------------------------------------------------')
+
+        # Process each included template in order
+        for include_template in self.include_templates:
+            print(f'Loading included template "{os.path.abspath(include_template)}"...')
+            include_str, include_type, include_data = self._load_template(include_template)
+
+            # We must run "aws cloudformation package" on the included template to expand
             # references to local resources (like a CodeUri of "./deployment.zip") before
             # we can apply transforms.  Applying transforms may require normalizing
             # from SAM to CFN and that will fail if "./deployment.zip" is still in the
             # template.  It doesn't hurt to run "cloudformation package" again later in
             # this function, since it will compute the same resource names the second time
             # and skip uploading them based on S3 ETag.
-            print(f'Packaging base template resources...')
-            p_base_str, p_base_type, p_base_data = self._aws_cfn_package(base_str)
+            print(f'Packaging included template "{os.path.abspath(include_template)}"...')
+            p_include_str, p_include_type, p_include_data = self._aws_cfn_package(include_str)
 
-            print(f'Applying Carica transforms...')
-            template_data = self._apply_carica_transforms(template_data, p_base_data)
+            # Convert from SAM to CFN if desired
+            p_include_data = self._normalize_template_format(p_include_data)
 
-            # Dump the transformed data as the original template type
+            if self.verbose:
+                print(f'Included template "{os.path.abspath(include_template)}": ')
+                print('-----------------------------------------------------------------------')
+                print(dump_cfn_template_yaml(p_include_data))
+                print('-----------------------------------------------------------------------')
+
+            print(f'Including resources from "{os.path.abspath(include_template)}"...')
+            template_data = self._apply_includes(template_data, p_include_data)
+
+        # If we applied includes, dump the template data back to a string for later use
+        if self.include_templates:
+            if self.verbose:
+                print(f'Stack template "{os.path.abspath(self.template)}" after includes applied: ')
+                print('-----------------------------------------------------------------------')
+                print(dump_cfn_template_yaml(template_data))
+                print('-----------------------------------------------------------------------')
+
+            if len(template_data.get('IncludedResources', {})) > 0:
+                raise CaricaCfnToolsError(
+                    'The following IncludedResources did not match a resource in any included '
+                    'templates: ' + ', '.join(template_data['IncludedResources'].keys()))
+
+            del template_data['IncludedResources']
+
             if template_type == 'yaml':
                 template_str = dump_cfn_template_yaml(template_data)
             else:
