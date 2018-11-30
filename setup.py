@@ -11,6 +11,8 @@ from os import path
 
 from setuptools import setup, find_packages
 
+import carica_cfn_tools.cli
+
 here = path.abspath(path.dirname(__file__))
 
 # Get the long description from the README file
@@ -19,7 +21,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 
 setup(
     name='carica_cfn_tools',
-    version='1.6',
+    version=carica_cfn_tools.cli.__version__,
     description='Tools to manage CloudFormation stack configuration',
     long_description=long_description,
     url='https://github.com/caricalabs/carica-cfn-tools',
@@ -35,11 +37,11 @@ setup(
     keywords='cloudformation cfn stack template config configuration',
     packages=find_packages(exclude=['contrib', 'docs', 'tests']),
     install_requires=[
-        'boto3~=1.9',
-        'click~=7.0',
+        'boto3~=1.9.56',
+        'click~=6.7',
         'PyYAML~=3.0',
-        'cfn_flip~=1.0.4',
-        'aws-sam-translator~=1.8.0',
+        'cfn_flip~=1.1.0',
+        'aws-sam-translator~=1.9.0',
     ],
     extras_require={
         'dev': ['check-manifest'],

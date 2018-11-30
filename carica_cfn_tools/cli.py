@@ -4,6 +4,8 @@ import click
 
 from carica_cfn_tools.stack_config import Stack, CaricaCfnToolsError
 
+__version__ = '1.7'
+
 
 def _create_change_set(stack_config, include_template, sam_to_cfn, extra, verbose, change_set_type):
     try:
@@ -25,6 +27,7 @@ EXTRA_HELP = 'Include this file or directory as a stack config "Extra" that gets
 
 
 @click.group()
+@click.version_option(version=__version__)
 def cli():
     pass
 
