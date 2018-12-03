@@ -163,7 +163,6 @@ class Stack(object):
         temp_dir = None
         try:
             temp_dir = tempfile.mkdtemp(prefix='stack_')
-            stack_config_dir = os.path.dirname(self.config_file)
 
             # Write the template file itself
             template_file_name = os.path.basename(self.template)
@@ -173,7 +172,7 @@ class Stack(object):
 
             # Copy all the referenced extras
             for extra in self.extras:
-                extra_path = os.path.abspath(os.path.join(stack_config_dir, extra))
+                extra_path = os.path.abspath(extra)
                 if not os.path.exists(extra_path):
                     raise CaricaCfnToolsError(f'Extra "{extra_path}" does not exist"')
 

@@ -4,7 +4,7 @@ import click
 
 from carica_cfn_tools.stack_config import Stack, CaricaCfnToolsError
 
-__version__ = '1.7'
+__version__ = '1.8'
 
 
 def _create_change_set(stack_config, include_template, sam_to_cfn, extra, verbose, change_set_type):
