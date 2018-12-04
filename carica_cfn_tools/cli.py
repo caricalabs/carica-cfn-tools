@@ -4,7 +4,7 @@ import click
 
 from carica_cfn_tools.stack_config import Stack, CaricaCfnToolsError
 
-__version__ = '1.8'
+__version__ = '1.8.1'
 
 
 def _create_change_set(stack_config, include_template, sam_to_cfn, extra, verbose, change_set_type):
@@ -13,7 +13,7 @@ def _create_change_set(stack_config, include_template, sam_to_cfn, extra, verbos
         stack.create_change_set(change_set_type=change_set_type)
     except CaricaCfnToolsError as e:
         print('ERROR: ' + str(e), file=sys.stderr)
-    sys.exit(1)
+        sys.exit(1)
 
 
 PRINT_HELP = 'Print extra information while processing templates'
