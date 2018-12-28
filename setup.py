@@ -11,7 +11,7 @@ from os import path
 
 from setuptools import setup, find_packages
 
-import carica_cfn_tools.cli
+import carica_cfn_tools.version
 
 here = path.abspath(path.dirname(__file__))
 
@@ -21,7 +21,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 
 setup(
     name='carica_cfn_tools',
-    version=carica_cfn_tools.cli.__version__,
+    version=carica_cfn_tools.version.__version__,
     description='Tools to manage CloudFormation stack configuration',
     long_description=long_description,
     url='https://github.com/caricalabs/carica-cfn-tools',
@@ -42,6 +42,7 @@ setup(
         'PyYAML~=3.0',
         'cfn_flip~=1.1.0',
         'aws-sam-translator~=1.9.0',
+        'jinja2~=2.10',
     ],
     extras_require={
         'dev': ['check-manifest'],

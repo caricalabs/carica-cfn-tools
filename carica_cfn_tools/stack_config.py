@@ -7,9 +7,11 @@ import subprocess
 import sys
 import tempfile
 from collections import OrderedDict
+from pathlib import Path
 
 import boto3
 import yaml
+from jinja2 import Environment, FileSystemLoader
 from samtranslator.translator.managed_policy_translator import ManagedPolicyLoader
 from samtranslator.translator.transform import transform
 
@@ -25,19 +27,19 @@ class CaricaCfnToolsError(Exception):
 
 
 class Stack(object):
-    def __init__(self, config_file, include_templates=None, convert_sam_to_cfn=False, extras=None,
+    def __init__(self, config_file, include_templates=None, convert_sam_to_cfn=False, extras=None, jextras=None,
                  verbose=False):
         self.config_file = config_file
         self.include_templates = include_templates
         self.convert_sam_to_cfn = convert_sam_to_cfn
         self.verbose = verbose
-        self._load_stack_config(extras)
+        self._load_stack_config(extras, jextras)
 
         # For un-SAM'ing templates
         iam = boto3.client('iam', region_name=self.region)
         self.managed_policy_loader = ManagedPolicyLoader(iam)
 
-    def _load_stack_config(self, extras):
+    def _load_stack_config(self, extras, jextras):
         """
         Load the stack config YAML file, validate some settings, and store the results
         in self.
@@ -63,10 +65,22 @@ class Stack(object):
 
             self.extras = config.get('Extras', [])
             if not isinstance(self.extras, list):
-                raise CaricaCfnToolsError('Top-level key "Extras" must be a list '
+                raise CaricaCfnToolsError('Top-level key "Extras" must be a list of glob patterns '
                                           '(not a dictionary or other type) if it is present')
             if extras:
                 self.extras += extras
+
+            self.jextras = config.get('JinjaExtras', [])
+            if not isinstance(self.jextras, list):
+                raise CaricaCfnToolsError('Top-level key "JinjaExtras" must be a list of glob patterns '
+                                          '(not a dictionary or other type) if it is present')
+            if jextras:
+                self.jextras += jextras
+
+            self.jextras_context = config.get('JinjaExtrasContext', {})
+            if not isinstance(self.jextras_context, dict):
+                raise CaricaCfnToolsError('Top-level key "JinjaExtrasContext" must be a dictionary '
+                                          '(not a list or other type) if it is present')
 
             params = config.get('Parameters', {})
             if not isinstance(params, dict):
@@ -170,18 +184,32 @@ class Stack(object):
             with open(temp_template_file_name, 'w') as stream:
                 stream.write(template_str)
 
-            # Copy all the referenced extras
-            for extra in self.extras:
-                extra_path = os.path.abspath(extra)
-                if not os.path.exists(extra_path):
-                    raise CaricaCfnToolsError(f'Extra "{extra_path}" does not exist"')
+            # Expand all the extra glob patterns to path strings (can be absolute or relative)
+            glob_root_path = os.path.dirname(self.config_file)
+            extra_paths = self._expand_globs(glob_root_path, self.extras)
+            jextra_paths = self._expand_globs(glob_root_path, self.jextras)
 
-                extra_last_part = os.path.basename(extra_path)
-                temp_extra_path = os.path.join(temp_dir, extra_last_part)
-                if os.path.isdir(extra_path):
-                    shutil.copytree(extra_path, temp_extra_path)
+            # Copy all the extras
+            temp_jextra_paths = []
+            for path in extra_paths + jextra_paths:
+                if not os.path.exists(path):
+                    raise CaricaCfnToolsError(f'Extra "{path}" does not exist"')
+
+                last_part = os.path.basename(path)
+                temp_extra_path = os.path.join(temp_dir, last_part)
+                print(temp_dir, path, temp_extra_path)
+
+                if os.path.isdir(path):
+                    shutil.copytree(path, temp_extra_path)
                 else:
-                    shutil.copyfile(extra_path, temp_extra_path)
+                    shutil.copyfile(path, temp_extra_path)
+
+                if path in jextra_paths:
+                    temp_jextra_paths.append(temp_extra_path)
+
+            # Run Jinja after everything is in place
+            for path in temp_jextra_paths:
+                self._run_jinja(temp_dir, path)
 
             with tempfile.NamedTemporaryFile() as output_temporary_file:
                 # Let the AWS CLI upload everything to S3
@@ -370,3 +398,36 @@ class Stack(object):
             return transform(template_data, {}, self.managed_policy_loader)
         else:
             return template_data
+
+    def _run_jinja(self, temp_dir, path):
+        env = Environment(loader=FileSystemLoader([temp_dir]))
+
+        file_paths = []
+        if os.path.isdir(path):
+            file_paths.extend([str(f) for f in Path(path).rglob('*') if f.is_file()])
+        else:
+            file_paths.append(path)
+
+        for file_path in file_paths:
+            print(f'Processing Jinja extra {file_path}')
+            # FileSystemLoader expects paths relative to one of its search paths.
+            template = env.get_template(os.path.relpath(file_path, temp_dir))
+            output = template.render(**self.jextras_context)
+
+            with tempfile.NamedTemporaryFile(prefix='jinja_', delete=False) as output_file:
+                output_file.write(bytes(output, 'utf-8'))
+                os.rename(output_file.name, file_path)
+
+    def _expand_globs(self, root_path, paths_or_patterns):
+        """Expand glob patterns from the given root into a list of absolute paths"""
+        abs_paths = []
+        for path_or_pattern in paths_or_patterns:
+            if os.path.isabs(path_or_pattern):
+                abs_paths.append(path_or_pattern)
+            else:
+                path_objs = list(Path(root_path).rglob(path_or_pattern))
+                if path_objs:
+                    abs_paths.extend(str(p.absolute()) for p in path_objs)
+                else:
+                    print(f'Warning: glob pattern "{path_or_pattern}" matches nothing from root "{root_path}"')
+        return abs_paths

@@ -43,3 +43,27 @@ Sample Stack Config
         # A parameter with a "SecretsManager" sub-key will be resolved to the
         # Secrets Manager secret with that ID.
         SecretsManager: dev.warehouseapp.postgresql-password
+    Extras:
+      - ../cfn/static/logo.png
+      - ../cfn/static/index.html
+    JinjaExtras:
+      - ../cfn/includes/*.yml
+    JinjaExtrasContext:
+      FOO: bar
+
+
+`Extras` and `JinjaExtras` can be absolute paths or glob patterns relative to
+the stack config file.
+
+`Extras` or `JinjaExtras` that are directories, whether specified by absolute
+path or expanded from a glob pattern, are copied recursively into the deployment
+at a top-level directory named after the *last* directory component of the source.
+An extra directory path like `/foo/bar/baz` ends up as `/baz` in the deployment.
+
+`Extras` or `JinjaExtras` that are files, whether by absolute path or expanded
+from a glob pattern, are copied into the root of the deployment.
+
+`JinjaExtras` are processed with the Jinja2 template engine after all extras
+are copied to a temporary directory.
+
+`JinjaExtrasContext` is a dictionary passed as the context when Jinja is run.
