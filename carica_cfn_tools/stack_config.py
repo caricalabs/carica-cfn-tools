@@ -197,7 +197,6 @@ class Stack(object):
 
                 last_part = os.path.basename(path)
                 temp_extra_path = os.path.join(temp_dir, last_part)
-                print(temp_dir, path, temp_extra_path)
 
                 if os.path.isdir(path):
                     shutil.copytree(path, temp_extra_path)
