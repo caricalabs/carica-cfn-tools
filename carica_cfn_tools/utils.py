@@ -26,7 +26,7 @@ def get_cfn_console_url(region, stack_arn, change_set_arn):
     quoted_change_set_arn = urllib.parse.quote(change_set_arn, safe='')
 
     return f'https://console.aws.amazon.com/cloudformation/home?region={region}#' \
-           f'/stacks/{quoted_stack_arn}/changesets/{quoted_change_set_arn}/changes'
+        f'/stacks/{quoted_stack_arn}/changesets/{quoted_change_set_arn}/changes'
 
 
 def open_url_in_browser(url):
@@ -77,9 +77,22 @@ def copy_dict(value, impl=dict):
 
 def load_cfn_template(template_str):
     """
-    Wrapper around cfn_flip.load() but returns a normal OrderedDict.
+    Loads a template from a string, detecting the format as JSON or YAML automatically.
+
+    Returns a normal OrderedDict.
     """
-    template_data, template_type = cfn_flip.load(template_str)
+
+    # cfn_flip.load() raises a JSONDecodeError even when the content was YAML (but invalid).
+    # So do our own loading here.
+    try:
+        template_data = cfn_flip.load_json(template_str)
+        template_type = 'json'
+    except ValueError as json_err:
+        try:
+            template_data = cfn_flip.load_yaml(template_str)
+            template_type = 'yaml'
+        except Exception as yaml_err:
+            raise ValueError(f'Could not read template as JSON or YAML:\n\t{str(json_err)}\n\t{str(yaml_err)}')
 
     # cfn_flip.load() can return a cfn_tools.odict.ODict, which is almost
     # immutable because of the way it always returns new lists from items(), but
