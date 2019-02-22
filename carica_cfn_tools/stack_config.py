@@ -7,19 +7,27 @@ import subprocess
 import sys
 import tempfile
 from collections import OrderedDict
+from enum import Enum
 from pathlib import Path
 
 import boto3
+import botocore.exceptions
 import yaml
 from jinja2 import Environment, FileSystemLoader
 from samtranslator.translator.managed_policy_translator import ManagedPolicyLoader
 from samtranslator.translator.transform import transform
 
 from carica_cfn_tools.utils import open_url_in_browser, get_s3_https_url, update_dict, \
-    get_cfn_console_url, copy_dict, load_cfn_template, dump_cfn_template_yaml, \
-    dump_cfn_template_json
+    get_cfn_console_url_changeset, copy_dict, load_cfn_template, dump_cfn_template_yaml, \
+    dump_cfn_template_json, get_cfn_console_url_stack
 
 STACK_CAPABILITIES = ['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM']
+
+
+class Action(Enum):
+    CREATE = 'create'
+    UPDATE = 'update'
+    CREATE_OR_UPDATE = 'create_or_update'
 
 
 class CaricaCfnToolsError(Exception):
@@ -344,15 +352,20 @@ class Stack(object):
         # Return the full HTTPS URL to the template in the S3 bucket
         return get_s3_https_url(self.region, self.bucket, template_key)
 
-    def create_change_set(self, change_set_type='CREATE'):
+    def apply_change_set(self, action):
+        template_https_url = self._publish()
+        cfn = boto3.client('cloudformation', region_name=self.region)
+        cfn.validate_template(TemplateURL=template_https_url)
+
+        # Compute the correct change set type based on the action and current state
+        if action is Action.CREATE or (action is Action.CREATE_OR_UPDATE and not self._stack_exists()):
+            change_set_type = 'CREATE'
+        else:
+            change_set_type = 'UPDATE'
+
         # Change set names are quite restrictive (must start with a letter, no colons).
         change_set_name = datetime.datetime.utcnow().strftime('C-%Y-%m-%d-%H%M%SZ')
 
-        template_https_url = self._publish()
-
-        cfn = boto3.client('cloudformation', region_name=self.region)
-
-        cfn.validate_template(TemplateURL=template_https_url)
         response = cfn.create_change_set(
             StackName=self.stack_name,
             TemplateURL=template_https_url,
@@ -362,7 +375,28 @@ class Stack(object):
             ChangeSetType=change_set_type
         )
 
-        console_url = get_cfn_console_url(self.region, response['StackId'], response['Id'])
+        console_url = get_cfn_console_url_changeset(self.region, response['StackId'], response['Id'])
+        open_url_in_browser(console_url)
+
+    def apply_stack(self, action):
+        template_https_url = self._publish()
+        cfn = boto3.client('cloudformation', region_name=self.region)
+        cfn.validate_template(TemplateURL=template_https_url)
+
+        if action is Action.CREATE or (action is Action.CREATE_OR_UPDATE and not self._stack_exists()):
+            response = cfn.create_stack(
+                StackName=self.stack_name,
+                TemplateURL=template_https_url,
+                Parameters=self.params,
+                Capabilities=STACK_CAPABILITIES)
+        else:
+            response = cfn.update_stack(
+                StackName=self.stack_name,
+                TemplateURL=template_https_url,
+                Parameters=self.params,
+                Capabilities=STACK_CAPABILITIES)
+
+        console_url = get_cfn_console_url_stack(self.region, response['StackId'])
         open_url_in_browser(console_url)
 
     def _load_secrets_manager_value(self, secret_id):
@@ -430,3 +464,15 @@ class Stack(object):
                 else:
                     print(f'Warning: glob pattern "{path_or_pattern}" matches nothing from root "{root_path}"')
         return abs_paths
+
+    def _stack_exists(self):
+        """Check if a non-deleted stack exists with the this config's name"""
+        cfn = boto3.client('cloudformation', region_name=self.region)
+        try:
+            response = cfn.describe_stacks(StackName=self.stack_name)
+            return len(response['Stacks']) > 0
+        except botocore.exceptions.ClientError as e:
+            # The code is not distinct ("ValidationError"), so check the message
+            if e.response['Error']['Message'].endswith('does not exist'):
+                return False
+            raise e
