@@ -378,7 +378,7 @@ class Stack(object):
 
             if wait:
                 waiter = cfn.get_waiter('change_set_create_complete')
-                waiter.wait(ChangeSetName=change_set_name)
+                waiter.wait(ChangeSetName=change_set_name, StackName=self.stack_name)
         except botocore.exceptions.WaiterError as e:
             # We can discover if the changeset was empty by querying it after the waiter fails.
             response = cfn.describe_change_set(ChangeSetName=change_set_name, StackName=self.stack_name)
