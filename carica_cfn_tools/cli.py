@@ -18,6 +18,8 @@ class ActionParamType(click.Choice):
 
 ACTION_HELP = f'CloudFormation action to perform (default is {Action.CREATE_OR_UPDATE.value})'
 DIRECT_HELP = 'Make changes to the stack directly instead of through a change set'
+IGNORE_EMPTY_UPDATES_HELP = 'Ignore "No updates are to be performed." errors when updating stacks'
+WAIT_HELP = 'Wait for creates and updates to finish before exiting'
 INC_TEMPLATE_HELP = 'Make resources in this SAM or CloudFormation template available for ' \
                     'inclusion in the stack\'s main template\'s "IncludedResources" section ' \
                     '(you can use this option multiple times)'
@@ -35,22 +37,24 @@ VERBOSE_HELP = 'Print extra information while processing templates'
 @click.argument('stack_config')
 @click.option('--action', '-a', type=ActionParamType(), default=Action.CREATE_OR_UPDATE, help=ACTION_HELP)
 @click.option('--direct', '-d', is_flag=True, help=DIRECT_HELP)
+@click.option('--ignore-empty-updates', '-g', is_flag=True, help=IGNORE_EMPTY_UPDATES_HELP)
+@click.option('--wait', '-w', is_flag=True, help=WAIT_HELP)
 @click.option('--include-template', '-i', multiple=True, help=INC_TEMPLATE_HELP)
 @click.option('--sam-to-cfn/--no-sam-to-cfn', default=True, help=SAM_TO_CFN_HELP)
 @click.option('--extra', '-e', multiple=True, help=EXTRA_HELP)
 @click.option('--jextra', '-j', multiple=True, help=JEXTRA_HELP)
 @click.option('--verbose/--no-verbose', '-v', help=VERBOSE_HELP)
 @click.version_option(version=carica_cfn_tools.version.__version__)
-def cli(stack_config, action, direct, include_template, sam_to_cfn, verbose, extra, jextra):
+def cli(stack_config, action, direct, ignore_empty_updates, wait, include_template, sam_to_cfn, verbose, extra, jextra):
     """
     Create or update the CloudFormation stack specified in STACK_CONFIG.
     """
     try:
         stack = Stack(stack_config, include_template, sam_to_cfn, extra, jextra, verbose)
         if direct:
-            stack.apply_stack(action)
+            stack.apply_stack(action, wait, ignore_empty_updates)
         else:
-            stack.apply_change_set(action)
+            stack.apply_change_set(action, wait, ignore_empty_updates)
     except CaricaCfnToolsError as e:
         print('ERROR: ' + str(e), file=sys.stderr)
         sys.exit(1)

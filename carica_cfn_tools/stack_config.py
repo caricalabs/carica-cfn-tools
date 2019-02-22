@@ -352,7 +352,7 @@ class Stack(object):
         # Return the full HTTPS URL to the template in the S3 bucket
         return get_s3_https_url(self.region, self.bucket, template_key)
 
-    def apply_change_set(self, action):
+    def apply_change_set(self, action, wait, ignore_empty_updates):
         template_https_url = self._publish()
         cfn = boto3.client('cloudformation', region_name=self.region)
         cfn.validate_template(TemplateURL=template_https_url)
@@ -366,38 +366,75 @@ class Stack(object):
         # Change set names are quite restrictive (must start with a letter, no colons).
         change_set_name = datetime.datetime.utcnow().strftime('C-%Y-%m-%d-%H%M%SZ')
 
-        response = cfn.create_change_set(
-            StackName=self.stack_name,
-            TemplateURL=template_https_url,
-            Parameters=self.params,
-            Capabilities=STACK_CAPABILITIES,
-            ChangeSetName=change_set_name,
-            ChangeSetType=change_set_type
-        )
+        try:
+            response = cfn.create_change_set(
+                StackName=self.stack_name,
+                TemplateURL=template_https_url,
+                Parameters=self.params,
+                Capabilities=STACK_CAPABILITIES,
+                ChangeSetName=change_set_name,
+                ChangeSetType=change_set_type
+            )
+
+            if wait:
+                waiter = cfn.get_waiter('change_set_create_complete')
+                waiter.wait(ChangeSetName=change_set_name)
+        except botocore.exceptions.WaiterError as e:
+            # We can discover if the changeset was empty by querying it after the waiter fails.
+            response = cfn.describe_change_set(ChangeSetName=change_set_name, StackName=self.stack_name)
+            if response['Status'] == 'FAILED' and response['StatusReason'].startswith(
+                    '''The submitted information didn't contain changes.'''):
+                if ignore_empty_updates:
+                    print(f'Change set {change_set_name} contains no changes, deleting')
+                    cfn.delete_change_set(ChangeSetName=change_set_name, StackName=self.stack_name)
+                    return
+                else:
+                    # Raise a better error than "Waiter encountered a terminal failure state" since
+                    # we know what happened.
+                    raise CaricaCfnToolsError(response['StatusReason'])
+
+            raise CaricaCfnToolsError(str(e))
+        except botocore.exceptions.ClientError as e:
+            raise CaricaCfnToolsError(str(e))
 
         console_url = get_cfn_console_url_changeset(self.region, response['StackId'], response['Id'])
         open_url_in_browser(console_url)
 
-    def apply_stack(self, action):
+    def apply_stack(self, action, wait, ignore_empty_updates):
         template_https_url = self._publish()
         cfn = boto3.client('cloudformation', region_name=self.region)
         cfn.validate_template(TemplateURL=template_https_url)
 
-        if action is Action.CREATE or (action is Action.CREATE_OR_UPDATE and not self._stack_exists()):
-            response = cfn.create_stack(
-                StackName=self.stack_name,
-                TemplateURL=template_https_url,
-                Parameters=self.params,
-                Capabilities=STACK_CAPABILITIES)
-        else:
-            response = cfn.update_stack(
-                StackName=self.stack_name,
-                TemplateURL=template_https_url,
-                Parameters=self.params,
-                Capabilities=STACK_CAPABILITIES)
+        waiter = None
+        try:
+            if action is Action.CREATE or (action is Action.CREATE_OR_UPDATE and not self._stack_exists()):
+                response = cfn.create_stack(
+                    StackName=self.stack_name,
+                    TemplateURL=template_https_url,
+                    Parameters=self.params,
+                    Capabilities=STACK_CAPABILITIES)
+                if wait:
+                    waiter = cfn.get_waiter('stack_create_complete')
+            else:
+                response = cfn.update_stack(
+                    StackName=self.stack_name,
+                    TemplateURL=template_https_url,
+                    Parameters=self.params,
+                    Capabilities=STACK_CAPABILITIES)
+                if wait:
+                    waiter = cfn.get_waiter('stack_update_complete')
+        except botocore.exceptions.ClientError as e:
+            if ignore_empty_updates and e.response['Error']['Message'] == 'No updates are to be performed.':
+                print(f'Template contains no changes')
+                return
+
+            raise CaricaCfnToolsError(str(e))
 
         console_url = get_cfn_console_url_stack(self.region, response['StackId'])
         open_url_in_browser(console_url)
+
+        if waiter:
+            waiter.wait(StackName=self.stack_name)
 
     def _load_secrets_manager_value(self, secret_id):
         ssm = boto3.client('secretsmanager', region_name=self.region)
