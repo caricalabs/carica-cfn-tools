@@ -47,6 +47,9 @@ class Stack(object):
         iam = boto3.client('iam', region_name=self.region)
         self.managed_policy_loader = ManagedPolicyLoader(iam)
 
+        # More aggressive than the default
+        self.waiter_config = {'Delay': 3, 'MaxAttempts': 200}
+
     def _load_stack_config(self, extras, jextras):
         """
         Load the stack config YAML file, validate some settings, and store the results
@@ -378,7 +381,7 @@ class Stack(object):
 
             if wait:
                 waiter = cfn.get_waiter('change_set_create_complete')
-                waiter.wait(ChangeSetName=change_set_name, StackName=self.stack_name)
+                waiter.wait(ChangeSetName=change_set_name, StackName=self.stack_name, WaiterConfig=self.waiter_config)
         except botocore.exceptions.WaiterError as e:
             # We can discover if the changeset was empty by querying it after the waiter fails.
             response = cfn.describe_change_set(ChangeSetName=change_set_name, StackName=self.stack_name)
@@ -434,7 +437,7 @@ class Stack(object):
         open_url_in_browser(console_url)
 
         if waiter:
-            waiter.wait(StackName=self.stack_name)
+            waiter.wait(StackName=self.stack_name, WaiterConfig=self.waiter_config)
 
     def _load_secrets_manager_value(self, secret_id):
         ssm = boto3.client('secretsmanager', region_name=self.region)
