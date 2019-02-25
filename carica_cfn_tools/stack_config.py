@@ -355,7 +355,7 @@ class Stack(object):
         # Return the full HTTPS URL to the template in the S3 bucket
         return get_s3_https_url(self.region, self.bucket, template_key)
 
-    def apply_change_set(self, action, wait, ignore_empty_updates):
+    def apply_change_set(self, action, wait, ignore_empty_updates, role_arn):
         template_https_url = self._publish()
         cfn = boto3.client('cloudformation', region_name=self.region)
         cfn.validate_template(TemplateURL=template_https_url)
@@ -376,7 +376,8 @@ class Stack(object):
                 Parameters=self.params,
                 Capabilities=STACK_CAPABILITIES,
                 ChangeSetName=change_set_name,
-                ChangeSetType=change_set_type
+                ChangeSetType=change_set_type,
+                RoleARN=role_arn,
             )
 
             if wait:
@@ -403,7 +404,7 @@ class Stack(object):
         console_url = get_cfn_console_url_changeset(self.region, response['StackId'], response['Id'])
         open_url_in_browser(console_url)
 
-    def apply_stack(self, action, wait, ignore_empty_updates):
+    def apply_stack(self, action, wait, ignore_empty_updates, role_arn):
         template_https_url = self._publish()
         cfn = boto3.client('cloudformation', region_name=self.region)
         cfn.validate_template(TemplateURL=template_https_url)
@@ -415,6 +416,7 @@ class Stack(object):
                     StackName=self.stack_name,
                     TemplateURL=template_https_url,
                     Parameters=self.params,
+                    RoleARN=role_arn,
                     Capabilities=STACK_CAPABILITIES)
                 if wait:
                     waiter = cfn.get_waiter('stack_create_complete')
@@ -423,6 +425,7 @@ class Stack(object):
                     StackName=self.stack_name,
                     TemplateURL=template_https_url,
                     Parameters=self.params,
+                    RoleARN=role_arn,
                     Capabilities=STACK_CAPABILITIES)
                 if wait:
                     waiter = cfn.get_waiter('stack_update_complete')
