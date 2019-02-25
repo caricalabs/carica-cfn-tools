@@ -369,16 +369,18 @@ class Stack(object):
         # Change set names are quite restrictive (must start with a letter, no colons).
         change_set_name = datetime.datetime.utcnow().strftime('C-%Y-%m-%d-%H%M%SZ')
 
+        args = dict(StackName=self.stack_name,
+                    TemplateURL=template_https_url,
+                    Parameters=self.params,
+                    Capabilities=STACK_CAPABILITIES,
+                    ChangeSetName=change_set_name,
+                    ChangeSetType=change_set_type)
+
+        if role_arn:
+            args['RoleARN'] = role_arn
+
         try:
-            response = cfn.create_change_set(
-                StackName=self.stack_name,
-                TemplateURL=template_https_url,
-                Parameters=self.params,
-                Capabilities=STACK_CAPABILITIES,
-                ChangeSetName=change_set_name,
-                ChangeSetType=change_set_type,
-                RoleARN=role_arn,
-            )
+            response = cfn.create_change_set(**args)
 
             if wait:
                 waiter = cfn.get_waiter('change_set_create_complete')
@@ -412,21 +414,27 @@ class Stack(object):
         waiter = None
         try:
             if action is Action.CREATE or (action is Action.CREATE_OR_UPDATE and not self._stack_exists()):
-                response = cfn.create_stack(
-                    StackName=self.stack_name,
-                    TemplateURL=template_https_url,
-                    Parameters=self.params,
-                    RoleARN=role_arn,
-                    Capabilities=STACK_CAPABILITIES)
+                args = dict(StackName=self.stack_name,
+                            TemplateURL=template_https_url,
+                            Parameters=self.params,
+                            Capabilities=STACK_CAPABILITIES)
+
+                if role_arn:
+                    args['RoleARN'] = role_arn
+
+                response = cfn.create_stack(**args)
                 if wait:
                     waiter = cfn.get_waiter('stack_create_complete')
             else:
-                response = cfn.update_stack(
-                    StackName=self.stack_name,
-                    TemplateURL=template_https_url,
-                    Parameters=self.params,
-                    RoleARN=role_arn,
-                    Capabilities=STACK_CAPABILITIES)
+                args = dict(StackName=self.stack_name,
+                            TemplateURL=template_https_url,
+                            Parameters=self.params,
+                            Capabilities=STACK_CAPABILITIES)
+
+                if role_arn:
+                    args['RoleARN'] = role_arn
+
+                response = cfn.update_stack(**args)
                 if wait:
                     waiter = cfn.get_waiter('stack_update_complete')
         except botocore.exceptions.ClientError as e:
