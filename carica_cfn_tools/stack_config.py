@@ -21,7 +21,7 @@ from carica_cfn_tools.utils import open_url_in_browser, get_s3_https_url, update
     get_cfn_console_url_changeset, copy_dict, load_cfn_template, dump_cfn_template_yaml, \
     dump_cfn_template_json, get_cfn_console_url_stack
 
-STACK_CAPABILITIES = ['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM']
+STACK_CAPABILITIES = ['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM', 'CAPABILITY_AUTO_EXPAND']
 
 
 class Action(Enum):
