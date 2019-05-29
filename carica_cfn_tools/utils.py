@@ -26,7 +26,7 @@ def get_cfn_console_url_changeset(region, stack_arn, change_set_arn):
     quoted_change_set_arn = urllib.parse.quote(change_set_arn, safe='')
 
     return f'https://console.aws.amazon.com/cloudformation/home?region={region}#' \
-        f'/stacks/{quoted_stack_arn}/changesets/{quoted_change_set_arn}/changes'
+        f'/stacks/changesets/changes?stackId={quoted_stack_arn}&changeSetId={quoted_change_set_arn}'
 
 
 def get_cfn_console_url_stack(region, stack_arn):
@@ -38,7 +38,7 @@ def get_cfn_console_url_stack(region, stack_arn):
     quoted_stack_arn = urllib.parse.quote(stack_arn, safe='')
 
     return f'https://console.aws.amazon.com/cloudformation/home?region={region}#' \
-        f'/stacks/{quoted_stack_arn}'
+        f'/stacks/stackinfo?stackId={quoted_stack_arn}'
 
 
 def open_url_in_browser(url):
