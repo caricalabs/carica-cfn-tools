@@ -173,10 +173,10 @@ class Stack(object):
 
         return template_data
 
-    def _aws_cfn_package(self, template_str):
+    def _aws_cfn_package_and_upload_extras(self, template_str):
         """
         Use "aws cloudformation package" to upload referenced objects (but not the template
-        itself) to S3.
+        itself) to S3.  Also upload the extras to S3.
 
         :param template_str: the template whose resources should be uploaded
         :return: a tuple containing the packaged template as a string, the format of that template
@@ -200,9 +200,10 @@ class Stack(object):
             extra_paths = self._expand_globs(glob_root_path, self.extras)
             jextra_paths = self._expand_globs(glob_root_path, self.jextras)
 
-            # Copy all the extras
+            # Copy all the extras to the temp dir
+            all_temp_extra_paths = []
             temp_jextra_paths = []
-            for path in extra_paths + jextra_paths:
+            for path in set(extra_paths + jextra_paths):
                 if not os.path.exists(path):
                     raise CaricaCfnToolsError(f'Extra "{path}" does not exist"')
 
@@ -214,15 +215,31 @@ class Stack(object):
                 else:
                     shutil.copyfile(path, temp_extra_path)
 
+                all_temp_extra_paths.append(temp_extra_path)
                 if path in jextra_paths:
                     temp_jextra_paths.append(temp_extra_path)
 
             # Run Jinja after everything is in place
-            for path in temp_jextra_paths:
+            for path in set(temp_jextra_paths):
                 self._run_jinja(temp_dir, path)
 
+            # Upload all extras so they can be used by stack resources.
+            for temp_extra_path in all_temp_extra_paths:
+                s3_path = f's3://{self.bucket}/{self.stack_name}/extras/{os.path.basename(temp_extra_path)}'
+
+                args = ['aws', 's3', 'cp']
+                if os.path.isdir(temp_extra_path):
+                    args += ['--recursive']
+                args += [temp_extra_path, s3_path]
+
+                proc = subprocess.Popen(args, cwd=temp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                stdout, stderr = proc.communicate()
+                if proc.returncode != 0:
+                    self._handle_failed_subprocess(proc, stdout, stderr)
+
+            # Invoke the AWS CLI to package artifacts referred to by the template in
+            # sections it understands (Lambda deployment archives, etc.).
             with tempfile.NamedTemporaryFile() as output_temporary_file:
-                # Let the AWS CLI upload everything to S3
                 args = [
                     'aws', 'cloudformation', 'package',
                     '--template-file', temp_template_file_name,
@@ -241,24 +258,21 @@ class Stack(object):
                     p_template_str = stream.read()
 
             if proc.returncode != 0:
-                # Write both to stder so it all comes out serially
-                sys.stderr.write(str(stdout, 'utf-8'))
-                sys.stderr.write(str(stderr, 'utf-8'))
-
-                print(f'\nPackaging temp directory preserved:', file=sys.stderr)
-                sys.stderr.flush()
-                os.system(f'ls -laR {temp_dir} 1>&2')
-                print('\n', file=sys.stderr)
-                sys.stderr.flush()
-
-                # Prevent the temp dir from getting removed
-                temp_dir = None
-
-                raise CaricaCfnToolsError('"aws cloudformation package" step failed; see '
-                                          'previous output for details')
+                self._handle_failed_subprocess(proc, stdout, stderr)
 
             p_template_data, p_template_type = load_cfn_template(p_template_str)
             return p_template_str, p_template_type, p_template_data
+        except CaricaCfnToolsError:
+            print(f'\nPackaging temp directory preserved:', file=sys.stderr)
+            sys.stderr.flush()
+            os.system(f'ls -laR {temp_dir} 1>&2')
+            print('\n', file=sys.stderr)
+            sys.stderr.flush()
+
+            # Prevent the temp dir from getting removed
+            temp_dir = None
+
+            raise
         finally:
             if temp_dir:
                 shutil.rmtree(temp_dir)
@@ -311,7 +325,7 @@ class Stack(object):
             # this function, since it will compute the same resource names the second time
             # and skip uploading them based on S3 ETag.
             print(f'Packaging included template "{os.path.abspath(include_template)}"...')
-            p_include_str, p_include_type, p_include_data = self._aws_cfn_package(include_str)
+            p_include_str, p_include_type, p_include_data = self._aws_cfn_package_and_upload_extras(include_str)
 
             # Convert from SAM to CFN if desired
             p_include_data = self._normalize_template_format(p_include_data)
@@ -346,7 +360,7 @@ class Stack(object):
                 template_str = dump_cfn_template_json(template_data)
 
         print(f'Packaging template resources...')
-        p_template_str, p_template_type, p_template_data = self._aws_cfn_package(template_str)
+        p_template_str, p_template_type, p_template_data = self._aws_cfn_package_and_upload_extras(template_str)
 
         print(f'Uploading template...')
         template_key = self._upload_template(p_template_str)
@@ -527,3 +541,10 @@ class Stack(object):
             if e.response['Error']['Message'].endswith('does not exist'):
                 return False
             raise e
+
+    def _handle_failed_subprocess(self, proc, stdout, stderr):
+        # Write both to stderr so it all comes out serially and in error logs
+        sys.stderr.write(str(stdout, 'utf-8'))
+        sys.stderr.write(str(stderr, 'utf-8'))
+        cmd = ' '.join(f'"{a}"' for a in proc.args)
+        raise CaricaCfnToolsError(f'Subprocess failed; see previous output for details: {cmd}')
