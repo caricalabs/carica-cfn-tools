@@ -1,10 +1,11 @@
 import copy
 import datetime
 import os
+import random
 import re
 import shutil
+import string
 import subprocess
-import sys
 import tempfile
 from collections import OrderedDict
 from enum import Enum
@@ -12,6 +13,7 @@ from pathlib import Path
 
 import boto3
 import botocore.exceptions
+import sys
 import yaml
 from jinja2 import Environment, FileSystemLoader
 from samtranslator.translator.managed_policy_translator import ManagedPolicyLoader
@@ -35,11 +37,12 @@ class CaricaCfnToolsError(Exception):
 
 
 class Stack(object):
-    def __init__(self, config_file, include_templates=None, convert_sam_to_cfn=False, extras=None, jextras=None,
-                 verbose=False):
+    def __init__(self, config_file, include_templates=None, convert_sam_to_cfn=False, extras=None, jinja=False,
+                 jextras=None, verbose=False):
         self.config_file = config_file
         self.include_templates = include_templates
         self.convert_sam_to_cfn = convert_sam_to_cfn
+        self.jinja = jinja
         self.verbose = verbose
         self._load_stack_config(extras, jextras)
 
@@ -126,8 +129,17 @@ class Stack(object):
         if not os.path.isfile(template_path):
             raise CaricaCfnToolsError(f'Template "{template_path}" not found')
 
-        with open(template_path, 'r') as stream:
-            template_str = stream.read()
+        if self.jinja:
+            # Let Jinja load the file so errors include line number information
+            template_str = self._run_jinja_on_main_template(template_path)
+            if self.verbose:
+                print(f'Stack template "{template_path}" after Jinja processing: ')
+                print('-----------------------------------------------------------------------')
+                print(template_str)
+                print('-----------------------------------------------------------------------')
+        else:
+            with open(template_path, 'r') as stream:
+                template_str = stream.read()
 
         template_data, template_type = load_cfn_template(template_str)
         return template_str, template_type, template_data
@@ -221,7 +233,7 @@ class Stack(object):
 
             # Run Jinja after everything is in place
             for path in set(temp_jextra_paths):
-                self._run_jinja(temp_dir, path)
+                self._run_jinja_on_extra(temp_dir, path)
 
             # Upload all extras so they can be used by stack resources.
             for temp_extra_path in all_temp_extra_paths:
@@ -497,7 +509,17 @@ class Stack(object):
         else:
             return template_data
 
-    def _run_jinja(self, temp_dir, path):
+    def _run_jinja_on_main_template(self, template_path):
+        env = Environment(loader=FileSystemLoader([os.path.dirname(template_path)]))
+        print(f'Processing main template with Jinja')
+        template = env.get_template(os.path.basename(template_path))
+        context = {
+            # A short string of ASCII chars that is randomly generated for each deployment
+            'deploy_stamp': ''.join(random.choice(string.ascii_letters) for _ in range(6)),
+        }
+        return template.render(**context)
+
+    def _run_jinja_on_extra(self, temp_dir, path):
         env = Environment(loader=FileSystemLoader([temp_dir]))
 
         file_paths = []
