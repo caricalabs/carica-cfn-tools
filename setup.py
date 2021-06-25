@@ -39,7 +39,6 @@ setup(
     install_requires=[
         'boto3>=1.9.99',
         'click~=6.7',
-        'PyYAML~=4.2b1',
         'cfn_flip~=1.1.0',
         'aws-sam-translator~=1.9.0',
         'jinja2~=2.10',
