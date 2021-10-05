@@ -6,6 +6,7 @@ import re
 import shutil
 import string
 import subprocess
+import sys
 import tempfile
 from collections import OrderedDict
 from enum import Enum
@@ -13,7 +14,6 @@ from pathlib import Path
 
 import boto3
 import botocore.exceptions
-import sys
 import yaml
 from jinja2 import Environment, FileSystemLoader
 from samtranslator.translator.managed_policy_translator import ManagedPolicyLoader
@@ -63,7 +63,7 @@ class Stack(object):
 
         config_dir = os.path.dirname(self.config_file)
         with open(self.config_file, 'r') as stream:
-            config = yaml.load(stream)
+            config = yaml.load(stream, Loader=yaml.SafeLoader)
             for attr in ['Region', 'Bucket', 'Name', 'Template']:
                 if attr not in config:
                     raise CaricaCfnToolsError(f'Stack config file "{self.config_file}" '
