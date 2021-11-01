@@ -38,7 +38,7 @@ setup(
     packages=find_packages(exclude=['contrib', 'docs', 'tests']),
     install_requires=[
         'boto3>=1.9.99',
-        'click~=6.7',
+        'click~=8.0',
         'cfn_flip~=1.1.0',
         'aws-sam-translator~=1.9.0',
         'jinja2~=2.10',
