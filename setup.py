@@ -41,7 +41,7 @@ setup(
         'click~=8.0',
         'cfn_flip~=1.1.0',
         'aws-sam-translator~=1.9.0',
-        'jinja2~=2.10',
+        'jinja2~=3.0',
     ],
     extras_require={
         'dev': ['check-manifest'],
