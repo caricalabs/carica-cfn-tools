@@ -36,6 +36,7 @@ setup(
     ],
     keywords='cloudformation cfn stack template config configuration',
     packages=find_packages(exclude=['contrib', 'docs', 'tests']),
+
     install_requires=[
         'boto3>=1.9.99',
         'click~=8.0',
@@ -47,8 +48,7 @@ setup(
         'dev': ['check-manifest'],
         'test': [],
     },
-    package_data={
-    },
+    package_data={},
     entry_points={
         'console_scripts': [
             'carica-cfn=carica_cfn_tools.cli:cli',

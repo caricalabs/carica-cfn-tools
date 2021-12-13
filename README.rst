@@ -11,12 +11,12 @@ in your main template.
 Development
 -----------
 
-The ``vinstall`` script uses virtualenv to prepare a Python environment useful
+The ``vinstall`` script uses the `venv` module to prepare a Python environment useful
 for development, so you don't have to build and install carica-cfn-tools to be
 able to run and test it.
 
 #. Run ``./vinstall``
-#. Activate the virtualenv by running ``. ./venv/bin/activate``
+#. Activate the virtual environment by running ``. ./venv/bin/activate``
 #. The ``console_scripts`` listed in ``setup.py`` are now in your path, so you
    can simply run them like:
 
