@@ -7,7 +7,7 @@ set -e
 BASE=$(dirname "$0")
 
 if [ ! -d "$BASE/venv" ] ; then
-  python -m venv "$BASE/venv"
+  python3 -m venv "$BASE/venv"
 fi
 
 . "$BASE/venv/bin/activate"
