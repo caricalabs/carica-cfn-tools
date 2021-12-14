@@ -1,19 +1,22 @@
 #!/bin/sh
 # 
-# Create a virtualenv at ./venv and install dependencies to it.  Useful
-# for development.
+# Create a virtual environment at ./venv and install dependencies to it.
+# Useful for development.
 
 set -e
 BASE=$(dirname "$0")
 
 if [ ! -d "$BASE/venv" ] ; then
-  virtualenv --python=python3 "$BASE/venv"
+  python3 -m venv "$BASE/venv"
 fi
 
 . "$BASE/venv/bin/activate"
 pip3 -q install pip -r "$BASE/requirements.txt" --upgrade
 
+# We need the wheel package installed for setup.py to be able to create them
+pip3 -q install wheel
+
 echo "Virtual environment configured at '$BASE/venv'"
 echo
-echo "Run '. $BASE/venv/bin/activate' to activate the virtualenv."
+echo "Run '. $BASE/venv/bin/activate' to activate the virtual environment."
 
