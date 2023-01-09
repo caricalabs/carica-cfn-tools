@@ -72,10 +72,14 @@ class Stack(object):
             self.bucket = config['Bucket']
             self.stack_name = config['Name']
 
+            if 'Jinja' in config:
+                self.jinja = bool(config['Jinja'])
+
             self.template = os.path.join(config_dir, config['Template'])
             if not os.path.isfile(self.template):
                 raise CaricaCfnToolsError(f'Referenced template file "{self.template}" '
                                           f'does not exist')
+
 
             self.extras = config.get('Extras', [])
             if not isinstance(self.extras, list):
@@ -381,7 +385,7 @@ class Stack(object):
         # Return the full HTTPS URL to the template in the S3 bucket
         return get_s3_https_url(self.region, self.bucket, template_key)
 
-    def apply_change_set(self, action, wait, ignore_empty_updates, role_arn):
+    def apply_change_set(self, action, browser, wait, ignore_empty_updates, role_arn):
         template_https_url = self._publish()
         cfn = boto3.client('cloudformation', region_name=self.region)
         cfn.validate_template(TemplateURL=template_https_url)
@@ -429,10 +433,11 @@ class Stack(object):
         except botocore.exceptions.ClientError as e:
             raise CaricaCfnToolsError(str(e))
 
-        console_url = get_cfn_console_url_changeset(self.region, response['StackId'], response['Id'])
-        open_url_in_browser(console_url)
+        if browser:
+            console_url = get_cfn_console_url_changeset(self.region, response['StackId'], response['Id'])
+            open_url_in_browser(console_url)
 
-    def apply_stack(self, action, wait, ignore_empty_updates, role_arn):
+    def apply_stack(self, action, browser, wait, ignore_empty_updates, role_arn):
         template_https_url = self._publish()
         cfn = boto3.client('cloudformation', region_name=self.region)
         cfn.validate_template(TemplateURL=template_https_url)
@@ -470,8 +475,9 @@ class Stack(object):
 
             raise CaricaCfnToolsError(str(e))
 
-        console_url = get_cfn_console_url_stack(self.region, response['StackId'])
-        open_url_in_browser(console_url)
+        if browser:
+            console_url = get_cfn_console_url_stack(self.region, response['StackId'])
+            open_url_in_browser(console_url)
 
         if waiter:
             waiter.wait(StackName=self.stack_name, WaiterConfig=self.waiter_config)

@@ -30,6 +30,7 @@ Sample Stack Config
     Bucket: mycorp-cfn-us-east-1
     Name: WarehouseApp
     Template: ../templates/warehouse-app.yml
+    Jinja: true
     Parameters:
       # Normal parameter values can include strings, numbers, booleans, etc.
       Stage: dev
@@ -51,6 +52,22 @@ Sample Stack Config
     JinjaExtrasContext:
       FOO: bar
 
+
+`Region` sets where the CloudFormation template and related resources will be
+uploaded and where the CloudFormation stack will be created.  This must match
+the region the `Bucket` was created in.  This is required.
+
+`Bucket` sets where the CloudFormation template and related resources will be
+uploaded.  This is required.
+
+`Name` sets the name of the CloudFormation stack.  This is required.
+
+`Template` is a relative path to the CloudFormation YAML or JSON template
+file to create the stack from.  This is required.
+
+`Jinja` is an optional setting that controls whether `Template` will be
+processed with Jinja2 before being uploaded.  This setting does not enable
+Jinja2 for extras; use `JinjaExtras` for that.
 
 `Extras` and `JinjaExtras` can be absolute paths or glob patterns relative to
 the stack config file.
