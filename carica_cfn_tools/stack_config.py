@@ -46,10 +46,6 @@ class Stack(object):
         self.verbose = verbose
         self.raw_config = self._load_stack_config(extras, jextras)
 
-        # For un-SAM'ing templates
-        iam = boto3.client('iam', region_name=self.region)
-        self.managed_policy_loader = ManagedPolicyLoader(iam)
-
         # More aggressive than the default
         self.waiter_config = {'Delay': 3, 'MaxAttempts': 200}
 
@@ -508,11 +504,14 @@ class Stack(object):
         """
         if self.convert_sam_to_cfn and template_data.get('Transform') \
                 == 'AWS::Serverless-2016-10-31':
+            # For un-SAM'ing templates
+            iam = boto3.client('iam', region_name=self.region)
+            managed_policy_loader = ManagedPolicyLoader(iam)
             # Make a deep copy of the dict that's mutable (ODict, the type that cfn_flip
             # uses internally, overrides items() to return a new list each time, which foils
             # the transformer).
             template_data = copy_dict(template_data, impl=OrderedDict)
-            return transform(template_data, {}, self.managed_policy_loader)
+            return transform(template_data, {}, managed_policy_loader)
         else:
             return template_data
 
