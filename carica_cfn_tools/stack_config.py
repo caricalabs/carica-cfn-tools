@@ -6,7 +6,6 @@ import re
 import shutil
 import string
 import subprocess
-import sys
 import tempfile
 from collections import OrderedDict
 from enum import Enum
@@ -14,6 +13,7 @@ from pathlib import Path
 
 import boto3
 import botocore.exceptions
+import sys
 import yaml
 from jinja2 import Environment, FileSystemLoader
 from samtranslator.translator.managed_policy_translator import ManagedPolicyLoader
@@ -44,7 +44,7 @@ class Stack(object):
         self.convert_sam_to_cfn = convert_sam_to_cfn
         self.jinja = jinja
         self.verbose = verbose
-        self._load_stack_config(extras, jextras)
+        self.raw_config = self._load_stack_config(extras, jextras)
 
         # For un-SAM'ing templates
         iam = boto3.client('iam', region_name=self.region)
@@ -53,7 +53,7 @@ class Stack(object):
         # More aggressive than the default
         self.waiter_config = {'Delay': 3, 'MaxAttempts': 200}
 
-    def _load_stack_config(self, extras, jextras):
+    def _load_stack_config(self, extras, jextras) -> dict:
         """
         Load the stack config YAML file, validate some settings, and store the results
         in self.
@@ -79,7 +79,6 @@ class Stack(object):
             if not os.path.isfile(self.template):
                 raise CaricaCfnToolsError(f'Referenced template file "{self.template}" '
                                           f'does not exist')
-
 
             self.extras = config.get('Extras', [])
             if not isinstance(self.extras, list):
@@ -121,6 +120,8 @@ class Stack(object):
                 return str(v)
 
             self.params = [{'ParameterKey': k, 'ParameterValue': val(v)} for k, v in params.items()]
+
+        return config
 
     def _load_template(self, template_path):
         """

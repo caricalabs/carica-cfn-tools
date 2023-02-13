@@ -1,6 +1,5 @@
-import sys
-
 import click
+import sys
 
 import carica_cfn_tools.version
 from carica_cfn_tools.stack_config import Stack, CaricaCfnToolsError, Action
@@ -34,6 +33,8 @@ JINJA_HELP = 'Process the SAM or CloudFormation template with the Jinja2 templat
              'included templates are processed (deprecated; use "Jinja" config key instead) '
 JEXTRA_HELP = 'Include files and directories match by this glob pattern like normal "Extras" but ' \
               'process matched files with the Jinja2 template engine before uploading'
+QUERY_HELP = 'Print the value of the specified top-level stack config key to stdout ' \
+             '(does not create or modify any stacks)'
 VERBOSE_HELP = 'Print extra information while processing templates'
 
 
@@ -50,16 +51,22 @@ VERBOSE_HELP = 'Print extra information while processing templates'
 @click.option('--extra', '-e', multiple=True, help=EXTRA_HELP)
 @click.option('--jinja/--no-jinja', '-J', default=False, help=JINJA_HELP)
 @click.option('--jextra', '-j', multiple=True, help=JEXTRA_HELP)
+@click.option('--query', '-q', help=QUERY_HELP)
 @click.option('--verbose/--no-verbose', '-v', help=VERBOSE_HELP)
 @click.version_option(version=carica_cfn_tools.version.__version__)
 def cli(stack_config, action, browser, direct, ignore_empty_updates, wait, role_arn, include_template, sam_to_cfn,
-        verbose, extra, jinja, jextra):
+        verbose, extra, jinja, jextra, query):
     """
     Create or update the CloudFormation stack specified in STACK_CONFIG.
     """
     try:
         stack = Stack(stack_config, include_template, sam_to_cfn, extra, jinja, jextra, verbose)
-        if direct:
+        if query:
+            if query not in stack.raw_config:
+                print(f'ERROR: Key "{query}" not found in stack config')
+                sys.exit(1)
+            print(stack.raw_config[query])
+        elif direct:
             stack.apply_stack(action, browser, wait, ignore_empty_updates, role_arn)
         else:
             stack.apply_change_set(action, browser, wait, ignore_empty_updates, role_arn)
