@@ -1,10 +1,10 @@
 import collections
 import subprocess
-import sys
 import urllib.parse
 from collections import OrderedDict
 
 import cfn_flip
+import sys
 from cfn_tools import ODict
 
 
@@ -26,7 +26,7 @@ def get_cfn_console_url_changeset(region, stack_arn, change_set_arn):
     quoted_change_set_arn = urllib.parse.quote(change_set_arn, safe='')
 
     return f'https://console.aws.amazon.com/cloudformation/home?region={region}#' \
-        f'/stacks/changesets/changes?stackId={quoted_stack_arn}&changeSetId={quoted_change_set_arn}'
+           f'/stacks/changesets/changes?stackId={quoted_stack_arn}&changeSetId={quoted_change_set_arn}'
 
 
 def get_cfn_console_url_stack(region, stack_arn):
@@ -38,7 +38,7 @@ def get_cfn_console_url_stack(region, stack_arn):
     quoted_stack_arn = urllib.parse.quote(stack_arn, safe='')
 
     return f'https://console.aws.amazon.com/cloudformation/home?region={region}#' \
-        f'/stacks/stackinfo?stackId={quoted_stack_arn}'
+           f'/stacks/stackinfo?stackId={quoted_stack_arn}'
 
 
 def open_url_in_browser(url):
@@ -68,6 +68,43 @@ def update_dict(d, u):
         else:
             d[k] = v
     return d
+
+
+def dict_find_path(dict_obj: dict, path: str, path_sep='.', default=None):
+    """
+    Find an object in a dict (and its contained objects) using simple path notation.
+
+    Paths are the keys along the path separated by your separator char::
+
+        my_mapping = {
+            'foo': 123,
+            'bar': {
+                'color': 'red',
+                'weight': 456
+            }
+        }
+
+        find_dict_obj(my_mapping, 'foo') == 123
+        find_dict_obj(my_mapping, 'foo.bar.color') == 'red'
+        find_dict_obj(my_mapping, 'foo|bar|color', path_sep='|') == 'red'
+        find_dict_obj(my_mapping, 'foo.bar.does_not_exist') # raises
+        find_dict_obj(my_mapping, 'foo.bar.does_not_exist', default='bigfoot') == 'bigfoot'
+
+
+    :param dict_obj: the top-level object to search
+    :param path: the path to search for
+    :param path_sep: the path separator to use
+    :param default: a value to return if no value was found for any path element
+    :return: the found value or the default value
+    """
+    keys = path.split(path_sep)
+
+    o = dict_obj
+    for key in keys:
+        if not isinstance(o, dict) or key not in o:
+            return default
+        o = o[key]
+    return o
 
 
 def copy_dict(value, impl=dict):
