@@ -522,6 +522,10 @@ class Stack(object):
         context = {
             # A short string of ASCII chars that is randomly generated for each deployment
             'deploy_stamp': ''.join(random.choice(string.ascii_letters) for _ in range(6)),
+            # Name of the S3 bucket where this template is copied for deployment
+            'deploy_bucket': self.bucket,
+            # Prefix in the S3 bucket under which the template and its resources are deployed
+            'deploy_prefix': f'{self.stack_name}/',
         }
         return template.render(**context)
 
