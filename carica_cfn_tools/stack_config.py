@@ -12,6 +12,7 @@ from enum import Enum
 from pathlib import Path
 
 import boto3
+from boto3.s3.transfer import TransferConfig
 import botocore.exceptions
 import sys
 import yaml
@@ -186,6 +187,21 @@ class Stack(object):
 
         return template_data
 
+    def _s3_upload(self, s3, source, dest_bucket, dest_key, tc=TransferConfig()):
+        if os.path.isdir(source):
+            # Turn source directory into a list of source file, destination tuples
+            todo = []
+            for path, _, files in os.walk(source):
+                directory_name = path.replace(source, '')  # strip source base directory from current path
+                for file in files:
+                    todo.append((os.path.join(path, file),
+                                 '/'.join((dest_key, directory_name, file))))
+        else:
+            todo = ((source, dest_key),)
+        for s, d in todo:
+            with open(s, "rb") as f:
+                s3.upload_fileobj(f, dest_bucket, d, Config=tc)
+
     def _aws_cfn_package_and_upload_extras(self, template_str):
         """
         Use "aws cloudformation package" to upload referenced objects (but not the template
@@ -236,19 +252,16 @@ class Stack(object):
             for path in set(temp_jextra_paths):
                 self._run_jinja_on_extra(temp_dir, path)
 
+            s3 = boto3.client('s3', region_name=self.region)
+            tc_kwargs = {}
+            if 'TC_multipart_threshold' in os.environ:
+                tc_kwargs['multipart_threshold'] = int(os.environ['TC_multipart_threshold'])
+            if 'TC_use_threads' in os.environ:
+                tc_kwargs['use_threads'] = bool(os.environ['TC_use_threads'])
             # Upload all extras so they can be used by stack resources.
             for temp_extra_path in all_temp_extra_paths:
-                s3_path = f's3://{self.bucket}/{self.stack_name}/extras/{os.path.basename(temp_extra_path)}'
-
-                args = ['aws', 's3', 'cp']
-                if os.path.isdir(temp_extra_path):
-                    args += ['--recursive']
-                args += [temp_extra_path, s3_path]
-
-                proc = subprocess.Popen(args, cwd=temp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                stdout, stderr = proc.communicate()
-                if proc.returncode != 0:
-                    self._handle_failed_subprocess(proc, stdout, stderr)
+                s3_key = f'{self.stack_name}/extras/{os.path.basename(temp_extra_path)}'
+                self._s3_upload(s3, temp_extra_path, self.bucket, s3_key, tc=(TransferConfig(**tc_kwargs)))
 
             # Invoke the AWS CLI to package artifacts referred to by the template in
             # sections it understands (Lambda deployment archives, etc.).
