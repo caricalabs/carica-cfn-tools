@@ -38,18 +38,18 @@ class CaricaCfnToolsError(Exception):
 
 class Stack(object):
     def __init__(self, config_file, include_templates=None, convert_sam_to_cfn=False, extras=None, jinja=False,
-                 jextras=None, verbose=False):
+                 jextras=None, package_extras=None, verbose=False):
         self.config_file = config_file
         self.include_templates = include_templates
         self.convert_sam_to_cfn = convert_sam_to_cfn
         self.jinja = jinja
         self.verbose = verbose
-        self.raw_config = self._load_stack_config(extras, jextras)
+        self.raw_config = self._load_stack_config(extras, jextras, package_extras)
 
         # More aggressive than the default
         self.waiter_config = {'Delay': 3, 'MaxAttempts': 200}
 
-    def _load_stack_config(self, extras, jextras) -> dict:
+    def _load_stack_config(self, extras, jextras, package_extras) -> dict:
         """
         Load the stack config YAML file, validate some settings, and store the results
         in self.
@@ -82,6 +82,13 @@ class Stack(object):
                                           '(not a dictionary or other type) if it is present')
             if extras:
                 self.extras += extras
+
+            self.package_extras = config.get('PackageExtras', [])
+            if not isinstance(self.package_extras, list):
+                raise CaricaCfnToolsError('Top-level key "PackageExtras" must be a list of glob patterns '
+                                          '(not a dictionary or other type) if it is present')
+            if package_extras:
+                self.package_extras += package_extras
 
             self.jextras = config.get('JinjaExtras', [])
             if not isinstance(self.jextras, list):
@@ -212,11 +219,12 @@ class Stack(object):
             glob_root_path = os.path.dirname(self.config_file)
             extra_paths = self._expand_globs(glob_root_path, self.extras)
             jextra_paths = self._expand_globs(glob_root_path, self.jextras)
+            package_extra_paths = self._expand_globs(glob_root_path, self.package_extras)
 
             # Copy all the extras to the temp dir
-            all_temp_extra_paths = []
+            upload_extra_paths = []
             temp_jextra_paths = []
-            for path in set(extra_paths + jextra_paths):
+            for path in set(extra_paths + jextra_paths + package_extra_paths):
                 if not os.path.exists(path):
                     raise CaricaCfnToolsError(f'Extra "{path}" does not exist"')
 
@@ -228,7 +236,9 @@ class Stack(object):
                 else:
                     shutil.copyfile(path, temp_extra_path)
 
-                all_temp_extra_paths.append(temp_extra_path)
+                if path in jextra_paths or path in extra_paths:
+                    upload_extra_paths.append(temp_extra_path)
+
                 if path in jextra_paths:
                     temp_jextra_paths.append(temp_extra_path)
 
@@ -236,8 +246,9 @@ class Stack(object):
             for path in set(temp_jextra_paths):
                 self._run_jinja_on_extra(temp_dir, path)
 
-            # Upload all extras so they can be used by stack resources.
-            for temp_extra_path in all_temp_extra_paths:
+            # Upload all extras and jextras so they can be used by stack resources.
+            # Package extras are not uploaded (since this is handled by the cloudformation package command)
+            for temp_extra_path in upload_extra_paths:
                 s3_path = f's3://{self.bucket}/{self.stack_name}/extras/{os.path.basename(temp_extra_path)}'
 
                 args = ['aws', 's3', 'cp']
@@ -253,6 +264,7 @@ class Stack(object):
             # Invoke the AWS CLI to package artifacts referred to by the template in
             # sections it understands (Lambda deployment archives, etc.).
             with tempfile.NamedTemporaryFile() as output_temporary_file:
+                print(f'Running aws cloudformation package on {temp_template_file_name} output to {output_temporary_file.name}')
                 args = [
                     'aws', 'cloudformation', 'package',
                     '--template-file', temp_template_file_name,

@@ -30,6 +30,9 @@ SAM_TO_CFN_HELP = 'Convert the stack\'s main template and all included templates
 EXTRA_HELP = 'Include files and directories matched by this glob pattern as stack config "Extras" ' \
              'that gets uploaded to S3 with other dependent resources (you can use this option ' \
              'multiple times)'
+PACKAGE_EXTRA_HELP = 'Include files and directories matched by this glob pattern as stack config "PackageExtras" ' \
+                   'that get copied into the local temp dir before running `aws cloudformation package`' \
+                   '(you can use this option multiple times)'
 JINJA_HELP = 'Process the SAM or CloudFormation template with the Jinja2 template engine after ' \
              'included templates are processed (deprecated; use "Jinja" config key instead) '
 JEXTRA_HELP = 'Include files and directories match by this glob pattern like normal "Extras" but ' \
@@ -50,18 +53,19 @@ VERBOSE_HELP = 'Print extra information while processing templates'
 @click.option('--include-template', '-i', multiple=True, help=INC_TEMPLATE_HELP)
 @click.option('--sam-to-cfn/--no-sam-to-cfn', default=True, help=SAM_TO_CFN_HELP)
 @click.option('--extra', '-e', multiple=True, help=EXTRA_HELP)
+@click.option('--package-extra', multiple=True, help=PACKAGE_EXTRA_HELP)
 @click.option('--jinja/--no-jinja', '-J', default=False, help=JINJA_HELP)
 @click.option('--jextra', '-j', multiple=True, help=JEXTRA_HELP)
 @click.option('--query', '-q', help=QUERY_HELP)
 @click.option('--verbose/--no-verbose', '-v', help=VERBOSE_HELP)
 @click.version_option(version=carica_cfn_tools.version.__version__)
 def cli(stack_config, action, browser, direct, ignore_empty_updates, wait, role_arn, include_template, sam_to_cfn,
-        verbose, extra, jinja, jextra, query):
+        verbose, extra, jinja, jextra, package_extra, query):
     """
     Create or update the CloudFormation stack specified in STACK_CONFIG.
     """
     try:
-        stack = Stack(stack_config, include_template, sam_to_cfn, extra, jinja, jextra, verbose)
+        stack = Stack(stack_config, include_template, sam_to_cfn, extra, jinja, jextra, package_extra, verbose)
         if query:
             val = dict_find_path(stack.raw_config, query)
             if not val:
