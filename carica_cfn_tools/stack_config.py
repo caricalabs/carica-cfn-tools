@@ -538,7 +538,8 @@ class Stack(object):
             'deploy_bucket': self.bucket,
             # Prefix in the S3 bucket under which the template and its resources are deployed
             'deploy_prefix': f'{self.stack_name}/',
-            'utcnow': datetime.datetime.now(datetime.timezone.utc)
+            'utcnow': datetime.datetime.now(datetime.timezone.utc),
+            'env': os.environ,
         }
         return template.render(**context)
 
