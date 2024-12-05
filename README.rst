@@ -31,6 +31,10 @@ Sample Stack Config
     Name: WarehouseApp
     Template: ../templates/warehouse-app.yml
     Jinja: true
+    Tags:
+      env: dev
+      scale: large
+      cost: small
     Parameters:
       # Normal parameter values can include strings, numbers, booleans, etc.
       Stage: dev
@@ -68,6 +72,10 @@ file to create the stack from.  This is required.
 `Jinja` is an optional setting that controls whether `Template` will be
 processed with Jinja2 before being uploaded.  This setting does not enable
 Jinja2 for extras; use `JinjaExtras` for that.
+
+`Tags` may be used to set tags on the CloudFormation stack.  CloudFormation
+propogates stack tags to the resources inside the stack, so this can be
+a convenient way to set tags on resources in your template.
 
 `Extras` and `JinjaExtras` can be absolute paths or glob patterns relative to
 the stack config file.

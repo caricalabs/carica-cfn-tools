@@ -6,6 +6,7 @@ import re
 import shutil
 import string
 import subprocess
+import sys
 import tempfile
 from collections import OrderedDict
 from enum import Enum
@@ -13,7 +14,6 @@ from pathlib import Path
 
 import boto3
 import botocore.exceptions
-import sys
 import yaml
 from jinja2 import Environment, FileSystemLoader
 from samtranslator.translator.managed_policy_translator import ManagedPolicyLoader
@@ -43,6 +43,7 @@ class Stack(object):
         self.include_templates = include_templates
         self.convert_sam_to_cfn = convert_sam_to_cfn
         self.jinja = jinja
+        self.tags = {}
         self.verbose = verbose
         self.raw_config = self._load_stack_config(extras, jextras, package_extras)
 
@@ -70,6 +71,9 @@ class Stack(object):
 
             if 'Jinja' in config:
                 self.jinja = bool(config['Jinja'])
+
+            if 'Tags' in config:
+                self.tags = dict(config['Tags'])
 
             self.template = os.path.join(config_dir, config['Template'])
             if not os.path.isfile(self.template):
@@ -264,7 +268,8 @@ class Stack(object):
             # Invoke the AWS CLI to package artifacts referred to by the template in
             # sections it understands (Lambda deployment archives, etc.).
             with tempfile.NamedTemporaryFile() as output_temporary_file:
-                print(f'Running aws cloudformation package on {temp_template_file_name} output to {output_temporary_file.name}')
+                print(f'Running aws cloudformation package on {temp_template_file_name} '
+                      f'output to {output_temporary_file.name}')
                 args = [
                     'aws', 'cloudformation', 'package',
                     '--template-file', temp_template_file_name,
@@ -413,7 +418,8 @@ class Stack(object):
                     Parameters=self.params,
                     Capabilities=STACK_CAPABILITIES,
                     ChangeSetName=change_set_name,
-                    ChangeSetType=change_set_type)
+                    ChangeSetType=change_set_type,
+                    Tags=self.tags)
 
         if role_arn:
             args['RoleARN'] = role_arn
@@ -457,7 +463,8 @@ class Stack(object):
                 args = dict(StackName=self.stack_name,
                             TemplateURL=template_https_url,
                             Parameters=self.params,
-                            Capabilities=STACK_CAPABILITIES)
+                            Capabilities=STACK_CAPABILITIES,
+                            Tags=self.tags)
 
                 if role_arn:
                     args['RoleARN'] = role_arn
@@ -469,7 +476,8 @@ class Stack(object):
                 args = dict(StackName=self.stack_name,
                             TemplateURL=template_https_url,
                             Parameters=self.params,
-                            Capabilities=STACK_CAPABILITIES)
+                            Capabilities=STACK_CAPABILITIES,
+                            Tags=self.tags)
 
                 if role_arn:
                     args['RoleARN'] = role_arn
