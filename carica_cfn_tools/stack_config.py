@@ -11,6 +11,7 @@ import tempfile
 from collections import OrderedDict
 from enum import Enum
 from pathlib import Path
+from typing import Dict, List
 
 import boto3
 import botocore.exceptions
@@ -419,7 +420,7 @@ class Stack(object):
                     Capabilities=STACK_CAPABILITIES,
                     ChangeSetName=change_set_name,
                     ChangeSetType=change_set_type,
-                    Tags=self.tags)
+                    Tags=self._tags_list)
 
         if role_arn:
             args['RoleARN'] = role_arn
@@ -464,7 +465,7 @@ class Stack(object):
                             TemplateURL=template_https_url,
                             Parameters=self.params,
                             Capabilities=STACK_CAPABILITIES,
-                            Tags=self.tags)
+                            Tags=self._tags_list)
 
                 if role_arn:
                     args['RoleARN'] = role_arn
@@ -477,7 +478,7 @@ class Stack(object):
                             TemplateURL=template_https_url,
                             Parameters=self.params,
                             Capabilities=STACK_CAPABILITIES,
-                            Tags=self.tags)
+                            Tags=self._tags_list)
 
                 if role_arn:
                     args['RoleARN'] = role_arn
@@ -602,3 +603,7 @@ class Stack(object):
         sys.stderr.write(str(stderr, 'utf-8'))
         cmd = ' '.join(f'"{a}"' for a in proc.args)
         raise CaricaCfnToolsError(f'Subprocess failed; see previous output for details: {cmd}')
+
+    @property
+    def _tags_list(self) -> List[Dict[str, str]]:
+        return [{'Key': k, 'Value': v} for k, v in self.tags.items()]
