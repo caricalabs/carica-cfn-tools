@@ -39,12 +39,12 @@ class CaricaCfnToolsError(Exception):
 
 class Stack(object):
     def __init__(self, config_file, include_templates=None, convert_sam_to_cfn=False, extras=None, jinja=False,
-                 jextras=None, package_extras=None, verbose=False):
+                 jextras=None, package_extras=None, verbose=False, tags=None):
         self.config_file = config_file
         self.include_templates = include_templates
         self.convert_sam_to_cfn = convert_sam_to_cfn
         self.jinja = jinja
-        self.tags = {}
+        self.tags = tags or {}
         self.verbose = verbose
         self.raw_config = self._load_stack_config(extras, jextras, package_extras)
 
@@ -74,7 +74,10 @@ class Stack(object):
                 self.jinja = bool(config['Jinja'])
 
             if 'Tags' in config:
-                self.tags = dict(config['Tags'])
+                # Add tags that weren't already set on the command line.
+                for k, v in config['Tags'].items():
+                    if k not in self.tags:
+                        self.tags[k] = v
 
             self.template = os.path.join(config_dir, config['Template'])
             if not os.path.isfile(self.template):
