@@ -1,5 +1,8 @@
-import click
 import sys
+from typing import Iterable
+
+import click
+from click import BadParameter
 
 import carica_cfn_tools.version
 from carica_cfn_tools.stack_config import Stack, CaricaCfnToolsError, Action
@@ -31,15 +34,28 @@ EXTRA_HELP = 'Include files and directories matched by this glob pattern as stac
              'that gets uploaded to S3 with other dependent resources (you can use this option ' \
              'multiple times)'
 PACKAGE_EXTRA_HELP = 'Include files and directories matched by this glob pattern as stack config "PackageExtras" ' \
-                   'that get copied into the local temp dir before running `aws cloudformation package`' \
-                   '(you can use this option multiple times)'
+                     'that get copied into the local temp dir before running `aws cloudformation package`' \
+                     '(you can use this option multiple times)'
 JINJA_HELP = 'Process the SAM or CloudFormation template with the Jinja2 template engine after ' \
              'included templates are processed (deprecated; use "Jinja" config key instead) '
 JEXTRA_HELP = 'Include files and directories match by this glob pattern like normal "Extras" but ' \
               'process matched files with the Jinja2 template engine before uploading'
 QUERY_HELP = 'Print the value of the specified stack config key to stdout; use dot path notation ' \
              'like "Parameters.SomeParameter"; (does not create or modify any stacks)'
+TAG_HELP = 'Set this tag on the CloudFormation stack (format like "key=value"); may be ' \
+           'specified multiple times; these values override values set in the Tag section in ' \
+           'the stack config file'
 VERBOSE_HELP = 'Print extra information while processing templates'
+
+
+def parse_tags(tags: Iterable[str]) -> dict[str, str]:
+    tags_dict = {}
+    for tag in tags:
+        k, sep, val = tag.partition('=')
+        if not k or not sep or not val:
+            raise BadParameter(f'Tag option value "{tag}" must be formatted like "key=value"')
+        tags_dict[k] = val
+    return tags_dict
 
 
 @click.command()
@@ -57,15 +73,19 @@ VERBOSE_HELP = 'Print extra information while processing templates'
 @click.option('--jinja/--no-jinja', '-J', default=False, help=JINJA_HELP)
 @click.option('--jextra', '-j', multiple=True, help=JEXTRA_HELP)
 @click.option('--query', '-q', help=QUERY_HELP)
+@click.option('--tag', '-t', help=TAG_HELP, multiple=True)
 @click.option('--verbose/--no-verbose', '-v', help=VERBOSE_HELP)
 @click.version_option(version=carica_cfn_tools.version.__version__)
 def cli(stack_config, action, browser, direct, ignore_empty_updates, wait, role_arn, include_template, sam_to_cfn,
-        verbose, extra, jinja, jextra, package_extra, query):
+        verbose, extra, jinja, jextra, package_extra, query, tag):
     """
     Create or update the CloudFormation stack specified in STACK_CONFIG.
     """
+    # Parse the tag arguments.
+    tags = parse_tags(tag)
+
     try:
-        stack = Stack(stack_config, include_template, sam_to_cfn, extra, jinja, jextra, package_extra, verbose)
+        stack = Stack(stack_config, include_template, sam_to_cfn, extra, jinja, jextra, package_extra, verbose, tags)
         if query:
             val = dict_find_path(stack.raw_config, query)
             if not val:

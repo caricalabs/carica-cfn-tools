@@ -6,14 +6,15 @@ import re
 import shutil
 import string
 import subprocess
+import sys
 import tempfile
 from collections import OrderedDict
 from enum import Enum
 from pathlib import Path
+from typing import Dict, List
 
 import boto3
 import botocore.exceptions
-import sys
 import yaml
 from jinja2 import Environment, FileSystemLoader
 from samtranslator.translator.managed_policy_translator import ManagedPolicyLoader
@@ -38,11 +39,12 @@ class CaricaCfnToolsError(Exception):
 
 class Stack(object):
     def __init__(self, config_file, include_templates=None, convert_sam_to_cfn=False, extras=None, jinja=False,
-                 jextras=None, package_extras=None, verbose=False):
+                 jextras=None, package_extras=None, verbose=False, tags=None):
         self.config_file = config_file
         self.include_templates = include_templates
         self.convert_sam_to_cfn = convert_sam_to_cfn
         self.jinja = jinja
+        self.tags = tags or {}
         self.verbose = verbose
         self.raw_config = self._load_stack_config(extras, jextras, package_extras)
 
@@ -70,6 +72,12 @@ class Stack(object):
 
             if 'Jinja' in config:
                 self.jinja = bool(config['Jinja'])
+
+            if 'Tags' in config:
+                # Add tags that weren't already set on the command line.
+                for k, v in config['Tags'].items():
+                    if k not in self.tags:
+                        self.tags[k] = v
 
             self.template = os.path.join(config_dir, config['Template'])
             if not os.path.isfile(self.template):
@@ -264,7 +272,8 @@ class Stack(object):
             # Invoke the AWS CLI to package artifacts referred to by the template in
             # sections it understands (Lambda deployment archives, etc.).
             with tempfile.NamedTemporaryFile() as output_temporary_file:
-                print(f'Running aws cloudformation package on {temp_template_file_name} output to {output_temporary_file.name}')
+                print(f'Running aws cloudformation package on {temp_template_file_name} '
+                      f'output to {output_temporary_file.name}')
                 args = [
                     'aws', 'cloudformation', 'package',
                     '--template-file', temp_template_file_name,
@@ -413,7 +422,8 @@ class Stack(object):
                     Parameters=self.params,
                     Capabilities=STACK_CAPABILITIES,
                     ChangeSetName=change_set_name,
-                    ChangeSetType=change_set_type)
+                    ChangeSetType=change_set_type,
+                    Tags=self._tags_list)
 
         if role_arn:
             args['RoleARN'] = role_arn
@@ -457,7 +467,8 @@ class Stack(object):
                 args = dict(StackName=self.stack_name,
                             TemplateURL=template_https_url,
                             Parameters=self.params,
-                            Capabilities=STACK_CAPABILITIES)
+                            Capabilities=STACK_CAPABILITIES,
+                            Tags=self._tags_list)
 
                 if role_arn:
                     args['RoleARN'] = role_arn
@@ -469,7 +480,8 @@ class Stack(object):
                 args = dict(StackName=self.stack_name,
                             TemplateURL=template_https_url,
                             Parameters=self.params,
-                            Capabilities=STACK_CAPABILITIES)
+                            Capabilities=STACK_CAPABILITIES,
+                            Tags=self._tags_list)
 
                 if role_arn:
                     args['RoleARN'] = role_arn
@@ -594,3 +606,7 @@ class Stack(object):
         sys.stderr.write(str(stderr, 'utf-8'))
         cmd = ' '.join(f'"{a}"' for a in proc.args)
         raise CaricaCfnToolsError(f'Subprocess failed; see previous output for details: {cmd}')
+
+    @property
+    def _tags_list(self) -> List[Dict[str, str]]:
+        return [{'Key': k, 'Value': v} for k, v in self.tags.items()]
