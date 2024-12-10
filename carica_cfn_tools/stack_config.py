@@ -10,6 +10,7 @@ import sys
 import tempfile
 from collections import OrderedDict
 from enum import Enum
+from math import ceil
 from pathlib import Path
 from typing import Dict, List
 
@@ -47,9 +48,6 @@ class Stack(object):
         self.tags = tags or {}
         self.verbose = verbose
         self.raw_config = self._load_stack_config(extras, jextras, package_extras)
-
-        # More aggressive than the default
-        self.waiter_config = {'Delay': 3, 'MaxAttempts': 200}
 
     def _load_stack_config(self, extras, jextras, package_extras) -> dict:
         """
@@ -403,7 +401,7 @@ class Stack(object):
         # Return the full HTTPS URL to the template in the S3 bucket
         return get_s3_https_url(self.region, self.bucket, template_key)
 
-    def apply_change_set(self, action, browser, wait, ignore_empty_updates, role_arn):
+    def apply_change_set(self, action, browser, wait, wait_timeout, ignore_empty_updates, role_arn):
         template_https_url = self._publish()
         cfn = boto3.client('cloudformation', region_name=self.region)
         cfn.validate_template(TemplateURL=template_https_url)
@@ -433,7 +431,8 @@ class Stack(object):
 
             if wait:
                 waiter = cfn.get_waiter('change_set_create_complete')
-                waiter.wait(ChangeSetName=change_set_name, StackName=self.stack_name, WaiterConfig=self.waiter_config)
+                waiter.wait(ChangeSetName=change_set_name, StackName=self.stack_name,
+                            WaiterConfig=self._build_waiter_config(wait_timeout))
         except botocore.exceptions.WaiterError as e:
             # We can discover if the changeset was empty by querying it after the waiter fails.
             response = cfn.describe_change_set(ChangeSetName=change_set_name, StackName=self.stack_name)
@@ -456,7 +455,7 @@ class Stack(object):
             console_url = get_cfn_console_url_changeset(self.region, response['StackId'], response['Id'])
             open_url_in_browser(console_url)
 
-    def apply_stack(self, action, browser, wait, ignore_empty_updates, role_arn):
+    def apply_stack(self, action, browser, wait, wait_timeout, ignore_empty_updates, role_arn):
         template_https_url = self._publish()
         cfn = boto3.client('cloudformation', region_name=self.region)
         cfn.validate_template(TemplateURL=template_https_url)
@@ -501,7 +500,7 @@ class Stack(object):
             open_url_in_browser(console_url)
 
         if waiter:
-            waiter.wait(StackName=self.stack_name, WaiterConfig=self.waiter_config)
+            waiter.wait(StackName=self.stack_name, WaiterConfig=self._build_waiter_config(wait_timeout))
 
     def _load_secrets_manager_value(self, secret_id):
         ssm = boto3.client('secretsmanager', region_name=self.region)
@@ -610,3 +609,8 @@ class Stack(object):
     @property
     def _tags_list(self) -> List[Dict[str, str]]:
         return [{'Key': k, 'Value': v} for k, v in self.tags.items()]
+
+    def _build_waiter_config(self, wait_timeout) -> dict:
+        wait_delay = 5
+        wait_attempts = ceil(wait_timeout / wait_delay)
+        return {'Delay': wait_delay, 'MaxAttempts': wait_attempts}

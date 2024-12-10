@@ -24,6 +24,7 @@ BROWSER_HELP = 'Open a web browser to view the changeset or stack'
 DIRECT_HELP = 'Make changes to the stack directly instead of through a change set'
 IGNORE_EMPTY_UPDATES_HELP = 'Ignore "No updates are to be performed." errors when updating stacks'
 WAIT_HELP = 'Wait for creates and updates to finish before exiting'
+WAIT_TIMEOUT_HELP = 'Wait this many seconds when --wait is used (default 3600)'
 ROLE_ARN_HELP = 'Use this value as the RoleARN argument creating or updating stacks and changesets'
 INC_TEMPLATE_HELP = 'Make resources in this SAM or CloudFormation template available for ' \
                     'inclusion in the stack\'s main template\'s "IncludedResources" section ' \
@@ -65,6 +66,7 @@ def parse_tags(tags: Iterable[str]) -> dict[str, str]:
 @click.option('--direct', '-d', is_flag=True, help=DIRECT_HELP)
 @click.option('--ignore-empty-updates', '-g', is_flag=True, help=IGNORE_EMPTY_UPDATES_HELP)
 @click.option('--wait', '-w', is_flag=True, help=WAIT_HELP)
+@click.option('--wait-timeout', '-W', help=WAIT_TIMEOUT_HELP)
 @click.option('--role-arn', '-r', help=ROLE_ARN_HELP)
 @click.option('--include-template', '-i', multiple=True, help=INC_TEMPLATE_HELP)
 @click.option('--sam-to-cfn/--no-sam-to-cfn', default=True, help=SAM_TO_CFN_HELP)
@@ -77,12 +79,16 @@ def parse_tags(tags: Iterable[str]) -> dict[str, str]:
 @click.option('--verbose/--no-verbose', '-v', help=VERBOSE_HELP)
 @click.version_option(version=carica_cfn_tools.version.__version__)
 def cli(stack_config, action, browser, direct, ignore_empty_updates, wait, role_arn, include_template, sam_to_cfn,
-        verbose, extra, jinja, jextra, package_extra, query, tag):
+        verbose, extra, jinja, jextra, package_extra, query, tag, wait_timeout):
     """
     Create or update the CloudFormation stack specified in STACK_CONFIG.
     """
-    # Parse the tag arguments.
+    # Parse arguments.
     tags = parse_tags(tag)
+    if wait_timeout:
+        wait_timeout = int(wait_timeout)
+    else:
+        wait_timeout = 3600
 
     try:
         stack = Stack(stack_config, include_template, sam_to_cfn, extra, jinja, jextra, package_extra, verbose, tags)
@@ -93,9 +99,9 @@ def cli(stack_config, action, browser, direct, ignore_empty_updates, wait, role_
                 sys.exit(1)
             print(val)
         elif direct:
-            stack.apply_stack(action, browser, wait, ignore_empty_updates, role_arn)
+            stack.apply_stack(action, browser, wait, wait_timeout, ignore_empty_updates, role_arn)
         else:
-            stack.apply_change_set(action, browser, wait, ignore_empty_updates, role_arn)
+            stack.apply_change_set(action, browser, wait, wait_timeout, ignore_empty_updates, role_arn)
     except CaricaCfnToolsError as e:
         print('ERROR: ' + str(e), file=sys.stderr)
         sys.exit(1)
