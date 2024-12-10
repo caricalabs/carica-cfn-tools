@@ -432,7 +432,7 @@ class Stack(object):
             if wait:
                 waiter = cfn.get_waiter('change_set_create_complete')
                 waiter.wait(ChangeSetName=change_set_name, StackName=self.stack_name,
-                            WaiterConfig=self.build_waiter_config(wait_timeout))
+                            WaiterConfig=self._build_waiter_config(wait_timeout))
         except botocore.exceptions.WaiterError as e:
             # We can discover if the changeset was empty by querying it after the waiter fails.
             response = cfn.describe_change_set(ChangeSetName=change_set_name, StackName=self.stack_name)
@@ -500,7 +500,7 @@ class Stack(object):
             open_url_in_browser(console_url)
 
         if waiter:
-            waiter.wait(StackName=self.stack_name, WaiterConfig=self.build_waiter_config(wait_timeout))
+            waiter.wait(StackName=self.stack_name, WaiterConfig=self._build_waiter_config(wait_timeout))
 
     def _load_secrets_manager_value(self, secret_id):
         ssm = boto3.client('secretsmanager', region_name=self.region)
@@ -610,7 +610,7 @@ class Stack(object):
     def _tags_list(self) -> List[Dict[str, str]]:
         return [{'Key': k, 'Value': v} for k, v in self.tags.items()]
 
-    def build_waiter_config(self, wait_timeout) -> dict:
+    def _build_waiter_config(self, wait_timeout) -> dict:
         wait_delay = 5
         wait_attempts = ceil(wait_timeout / wait_delay)
         return {'Delay': wait_delay, 'MaxAttempts': wait_attempts}
