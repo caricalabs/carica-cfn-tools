@@ -58,12 +58,14 @@ class Stack(object):
         package_extras=None,
         verbose=False,
         tags=None,
+        params=None,
     ):
         self.config_file = config_file
         self.include_templates = include_templates
         self.convert_sam_to_cfn = convert_sam_to_cfn
         self.jinja = jinja
         self.tags = tags or {}
+        self.params = params or {}
         self.verbose = verbose
         self.raw_config = self._load_stack_config(extras, jextras, package_extras)
 
@@ -81,7 +83,7 @@ class Stack(object):
             for attr in ['Region', 'Bucket', 'Name', 'Template']:
                 if attr not in config:
                     raise CaricaCfnToolsError(
-                        f'Stack config file "{self.config_file}" ' f'is missing the required top-level key "{attr}"'
+                        f'Stack config file "{self.config_file}" is missing the required top-level key "{attr}"'
                     )
             self.region = config['Region']
             self.bucket = config['Bucket']
@@ -98,7 +100,7 @@ class Stack(object):
 
             self.template = os.path.join(config_dir, config['Template'])
             if not os.path.isfile(self.template):
-                raise CaricaCfnToolsError(f'Referenced template file "{self.template}" ' f'does not exist')
+                raise CaricaCfnToolsError(f'Referenced template file "{self.template}" does not exist')
 
             self.extras = config.get('Extras', [])
             if not isinstance(self.extras, list):
@@ -137,7 +139,7 @@ class Stack(object):
             params = config.get('Parameters', {})
             if not isinstance(params, dict):
                 raise CaricaCfnToolsError(
-                    'Top-level key "Parameters" must be a dictionary ' '(not a list or other type) if it is present'
+                    'Top-level key "Parameters" must be a dictionary (not a list or other type) if it is present'
                 )
 
             # Resolve external parameter values
@@ -150,12 +152,15 @@ class Stack(object):
 
             def val(v):
                 if v is False:
-                    return "false"
+                    return 'false'
                 if v is True:
-                    return "true"
+                    return 'true'
                 return str(v)
 
-            self.params = [{'ParameterKey': k, 'ParameterValue': val(v)} for k, v in params.items()]
+            # Add params that weren't already defined during initialization
+            for k, v in params.items():
+                if k not in self.params:
+                    self.params[k] = val(v)
 
         return config
 
@@ -453,7 +458,7 @@ class Stack(object):
         args = dict(
             StackName=self.stack_name,
             TemplateURL=template_https_url,
-            Parameters=self.params,
+            Parameters=self._params_list,
             Capabilities=STACK_CAPABILITIES,
             ChangeSetName=change_set_name,
             ChangeSetType=change_set_type,
@@ -507,7 +512,7 @@ class Stack(object):
                 args = dict(
                     StackName=self.stack_name,
                     TemplateURL=template_https_url,
-                    Parameters=self.params,
+                    Parameters=self._params_list,
                     Capabilities=STACK_CAPABILITIES,
                     Tags=self._tags_list,
                 )
@@ -522,7 +527,7 @@ class Stack(object):
                 args = dict(
                     StackName=self.stack_name,
                     TemplateURL=template_https_url,
-                    Parameters=self.params,
+                    Parameters=self._params_list,
                     Capabilities=STACK_CAPABILITIES,
                     Tags=self._tags_list,
                 )
@@ -651,6 +656,10 @@ class Stack(object):
     @property
     def _tags_list(self) -> List[Dict[str, str]]:
         return [{'Key': k, 'Value': v} for k, v in self.tags.items()]
+
+    @property
+    def _params_list(self) -> List[Dict[str, str]]:
+        return [{'ParameterKey': k, 'ParameterValue': v} for k, v in self.params.items()]
 
     def _build_waiter_config(self, wait_timeout) -> dict:
         wait_delay = 5

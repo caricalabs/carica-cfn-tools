@@ -196,9 +196,8 @@ Resources:
 
         stack = Stack(str(config_path))
 
-        params_dict = {p['ParameterKey']: p['ParameterValue'] for p in stack.params}
-        assert params_dict['StringParam'] == 'value'
-        assert params_dict['NumberParam'] == '123'
+        assert stack.params['StringParam'] == 'value'
+        assert stack.params['NumberParam'] == '123'
 
     def test_boolean_parameter_true(self, tmp_path):
         """Test that True boolean is converted to 'true' string."""
@@ -219,8 +218,7 @@ Resources:
 
         stack = Stack(str(config_path))
 
-        params_dict = {p['ParameterKey']: p['ParameterValue'] for p in stack.params}
-        assert params_dict['EnableFeature'] == 'true'
+        assert stack.params['EnableFeature'] == 'true'
 
     def test_boolean_parameter_false(self, tmp_path):
         """Test that False boolean is converted to 'false' string."""
@@ -241,8 +239,7 @@ Resources:
 
         stack = Stack(str(config_path))
 
-        params_dict = {p['ParameterKey']: p['ParameterValue'] for p in stack.params}
-        assert params_dict['DisableFeature'] == 'false'
+        assert stack.params['DisableFeature'] == 'false'
 
     def test_tags_from_config(self, tmp_path):
         """Test that tags are loaded from config."""
@@ -286,6 +283,69 @@ Resources:
         stack = Stack(str(config_path), tags={'Environment': 'prod'})
 
         assert stack.tags['Environment'] == 'prod'
+
+    def test_cli_params_override_config_params(self, tmp_path):
+        """Test that CLI parameters override config file parameters."""
+        template_path = tmp_path / 'template.yml'
+        template_path.write_text('AWSTemplateFormatVersion: "2010-09-09"\nResources: {}')
+
+        config = {
+            'Region': 'us-east-1',
+            'Bucket': 'my-bucket',
+            'Name': 'TestStack',
+            'Template': 'template.yml',
+            'Parameters': {
+                'Environment': 'dev',
+                'Count': '10',
+            },
+        }
+        config_path = tmp_path / 'config.yml'
+        config_path.write_text(yaml.dump(config))
+
+        stack = Stack(str(config_path), params={'Environment': 'prod'})
+
+        assert stack.params['Environment'] == 'prod'
+        assert stack.params['Count'] == '10'
+
+    def test_cli_params_add_new_params(self, tmp_path):
+        """Test that CLI parameters can add new parameters not in config."""
+        template_path = tmp_path / 'template.yml'
+        template_path.write_text('AWSTemplateFormatVersion: "2010-09-09"\nResources: {}')
+
+        config = {
+            'Region': 'us-east-1',
+            'Bucket': 'my-bucket',
+            'Name': 'TestStack',
+            'Template': 'template.yml',
+            'Parameters': {
+                'Existing': 'value',
+            },
+        }
+        config_path = tmp_path / 'config.yml'
+        config_path.write_text(yaml.dump(config))
+
+        stack = Stack(str(config_path), params={'NewParam': 'new-value'})
+
+        assert stack.params['Existing'] == 'value'
+        assert stack.params['NewParam'] == 'new-value'
+
+    def test_params_empty_when_none(self, tmp_path):
+        """Test that params defaults to empty dict when no config params."""
+        template_path = tmp_path / 'template.yml'
+        template_path.write_text('AWSTemplateFormatVersion: "2010-09-09"\nResources: {}')
+
+        config = {
+            'Region': 'us-east-1',
+            'Bucket': 'my-bucket',
+            'Name': 'TestStack',
+            'Template': 'template.yml',
+        }
+        config_path = tmp_path / 'config.yml'
+        config_path.write_text(yaml.dump(config))
+
+        stack = Stack(str(config_path))
+
+        assert stack.params == {}
 
     def test_extras_must_be_list(self, tmp_path):
         """Test that Extras must be a list."""
@@ -475,8 +535,7 @@ class TestStackSecretsAndParameters:
 
         stack = Stack(config_with_secrets)
 
-        params_dict = {p['ParameterKey']: p['ParameterValue'] for p in stack.params}
-        assert params_dict['SecretParam'] == 'my-secret-value'
+        assert stack.params['SecretParam'] == 'my-secret-value'
 
     @patch('carica_cfn_tools.stack_config.boto3.client')
     def test_secrets_manager_error(self, mock_boto_client, config_with_secrets):
@@ -499,8 +558,7 @@ class TestStackSecretsAndParameters:
 
         stack = Stack(config_with_ssm_param)
 
-        params_dict = {p['ParameterKey']: p['ParameterValue'] for p in stack.params}
-        assert params_dict['SSMParam'] == 'my-ssm-value'
+        assert stack.params['SSMParam'] == 'my-ssm-value'
 
     @patch('carica_cfn_tools.stack_config.boto3.client')
     def test_parameter_store_error(self, mock_boto_client, config_with_ssm_param):

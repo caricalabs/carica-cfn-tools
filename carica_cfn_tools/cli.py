@@ -62,6 +62,11 @@ TAG_HELP = (
     'specified multiple times; these values override values set in the Tag section in '
     'the stack config file'
 )
+PARAM_HELP = (
+    'Set this parameter on the CloudFormation stack (format like "key=value"); may be '
+    'specified multiple times; these values override values set in the Parameters section in '
+    'the stack config file'
+)
 VERBOSE_HELP = 'Print extra information while processing templates'
 
 
@@ -73,6 +78,16 @@ def parse_tags(tags: Iterable[str]) -> dict[str, str]:
             raise BadParameter(f'Tag option value "{tag}" must be formatted like "key=value"')
         tags_dict[k] = val
     return tags_dict
+
+
+def parse_parameters(parameters: Iterable[str]) -> dict[str, str]:
+    params_dict = {}
+    for param in parameters:
+        k, sep, val = param.partition('=')
+        if not k or not sep or not val:
+            raise BadParameter(f'Parameter option value "{param}" must be formatted like "key=value"')
+        params_dict[k] = val
+    return params_dict
 
 
 @click.command()
@@ -92,6 +107,7 @@ def parse_tags(tags: Iterable[str]) -> dict[str, str]:
 @click.option('--jextra', '-j', multiple=True, help=JEXTRA_HELP)
 @click.option('--query', '-q', help=QUERY_HELP)
 @click.option('--tag', '-t', help=TAG_HELP, multiple=True)
+@click.option('--parameter', '-p', help=PARAM_HELP, multiple=True)
 @click.option('--verbose/--no-verbose', '-v', help=VERBOSE_HELP)
 @click.version_option(version=carica_cfn_tools.version.__version__)
 def cli(
@@ -111,6 +127,7 @@ def cli(
     package_extra,
     query,
     tag,
+    parameter,
     wait_timeout,
 ):
     """
@@ -118,13 +135,16 @@ def cli(
     """
     # Parse arguments.
     tags = parse_tags(tag)
+    params = parse_parameters(parameter)
     if wait_timeout:
         wait_timeout = int(wait_timeout)
     else:
         wait_timeout = 3600
 
     try:
-        stack = Stack(stack_config, include_template, sam_to_cfn, extra, jinja, jextra, package_extra, verbose, tags)
+        stack = Stack(
+            stack_config, include_template, sam_to_cfn, extra, jinja, jextra, package_extra, verbose, tags, params
+        )
         if query:
             val = dict_find_path(stack.raw_config, query)
             if not val:

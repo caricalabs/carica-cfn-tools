@@ -12,6 +12,7 @@ from click.testing import CliRunner
 from carica_cfn_tools.cli import (
     ActionParamType,
     parse_tags,
+    parse_parameters,
     cli,
 )
 from carica_cfn_tools.stack_config import Action
@@ -93,6 +94,81 @@ class TestParseTags:
         """Test that empty value raises BadParameter."""
         with pytest.raises(BadParameter):
             parse_tags(['key='])
+
+
+class TestParseParameters:
+    """Tests for parse_parameters function."""
+
+    def test_single_parameter(self):
+        """Test parsing a single parameter."""
+        result = parse_parameters(['key=value'])
+        assert result == {'key': 'value'}
+
+    def test_multiple_parameters(self):
+        """Test parsing multiple parameters."""
+        result = parse_parameters(['key1=value1', 'key2=value2'])
+        assert result == {'key1': 'value1', 'key2': 'value2'}
+
+    def test_parameter_with_equals_in_value(self):
+        """Test parameter where value contains equals sign."""
+        result = parse_parameters(['key=value=with=equals'])
+        assert result == {'key': 'value=with=equals'}
+
+    def test_empty_parameters(self):
+        """Test parsing empty parameter list."""
+        result = parse_parameters([])
+        assert result == {}
+
+    def test_parameter_with_special_characters(self):
+        """Test parameter with special characters in value."""
+        result = parse_parameters(['env=prod-us-east-1', 'url=https://example.com'])
+        assert result == {'env': 'prod-us-east-1', 'url': 'https://example.com'}
+
+    def test_missing_equals_raises_error(self):
+        """Test that parameter without equals raises BadParameter."""
+        with pytest.raises(BadParameter) as excinfo:
+            parse_parameters(['invalid-param'])
+        assert 'must be formatted like "key=value"' in str(excinfo.value)
+
+    def test_empty_key_raises_error(self):
+        """Test that empty key raises BadParameter."""
+        with pytest.raises(BadParameter):
+            parse_parameters(['=value'])
+
+    def test_empty_value_raises_error(self):
+        """Test that empty value raises BadParameter."""
+        with pytest.raises(BadParameter):
+            parse_parameters(['key='])
+
+    def test_parameter_with_multiple_equals(self):
+        """Test parameter with multiple equals signs in value."""
+        result = parse_parameters(['key=a=b=c=d'])
+        assert result == {'key': 'a=b=c=d'}
+
+    def test_parameter_value_starts_with_equals(self):
+        """Test parameter where value starts with equals."""
+        result = parse_parameters(['key==value'])
+        assert result == {'key': '=value'}
+
+    def test_parameter_value_ends_with_equals(self):
+        """Test parameter where value ends with equals."""
+        result = parse_parameters(['key=value='])
+        assert result == {'key': 'value='}
+
+    def test_parameter_value_is_only_equals(self):
+        """Test parameter where value is only equals signs."""
+        result = parse_parameters(['key===='])
+        assert result == {'key': '==='}
+
+    def test_parameter_with_base64_value(self):
+        """Test parameter with base64-encoded value (single padding)."""
+        result = parse_parameters(['Secret=dGVzdCBzZWNyZXQ='])
+        assert result == {'Secret': 'dGVzdCBzZWNyZXQ='}
+
+    def test_parameter_with_base64_double_padding(self):
+        """Test parameter with base64-encoded value (double padding)."""
+        result = parse_parameters(['Secret=dGVzdA=='])
+        assert result == {'Secret': 'dGVzdA=='}
 
 
 class TestCli:
@@ -319,6 +395,25 @@ Resources:
         call_args = mock_stack_class.call_args
         tags = call_args[0][8]  # tags is position 8 (0-indexed)
         assert tags == {'env': 'prod', 'team': 'platform'}
+
+    @patch('carica_cfn_tools.cli.Stack')
+    def test_parameter_option(self, mock_stack_class, runner, valid_config_file):
+        """Test --parameter option is passed to Stack constructor."""
+        mock_stack = MagicMock()
+        mock_stack_class.return_value = mock_stack
+
+        result = runner.invoke(
+            cli, [valid_config_file, '--parameter', 'Env=prod', '--parameter', 'Count=5']
+        )
+
+        call_args = mock_stack_class.call_args
+        params = call_args[0][9]  # params is position 9 (0-indexed)
+        assert params == {'Env': 'prod', 'Count': '5'}
+
+    def test_invalid_parameter_format(self, runner, valid_config_file):
+        """Test that invalid parameter format shows error."""
+        result = runner.invoke(cli, [valid_config_file, '--parameter', 'invalid'])
+        assert result.exit_code != 0
 
     @patch('carica_cfn_tools.cli.Stack')
     def test_verbose_flag(self, mock_stack_class, runner, valid_config_file):
