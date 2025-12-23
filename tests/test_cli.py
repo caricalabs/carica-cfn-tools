@@ -416,6 +416,84 @@ Resources:
         assert result.exit_code != 0
 
     @patch('carica_cfn_tools.cli.Stack')
+    def test_tag_with_equals_in_value(self, mock_stack_class, runner, valid_config_file):
+        """Test --tag with equals signs in the value."""
+        mock_stack = MagicMock()
+        mock_stack_class.return_value = mock_stack
+
+        result = runner.invoke(cli, [valid_config_file, '--tag', 'config=key=value'])
+
+        call_args = mock_stack_class.call_args
+        tags = call_args[0][8]
+        assert tags == {'config': 'key=value'}
+
+    @patch('carica_cfn_tools.cli.Stack')
+    def test_tag_with_base64_value(self, mock_stack_class, runner, valid_config_file):
+        """Test --tag with base64-encoded value containing equals padding."""
+        mock_stack = MagicMock()
+        mock_stack_class.return_value = mock_stack
+
+        result = runner.invoke(cli, [valid_config_file, '--tag', 'secret=dGVzdA=='])
+
+        call_args = mock_stack_class.call_args
+        tags = call_args[0][8]
+        assert tags == {'secret': 'dGVzdA=='}
+
+    @patch('carica_cfn_tools.cli.Stack')
+    def test_parameter_with_equals_in_value(self, mock_stack_class, runner, valid_config_file):
+        """Test --parameter with equals signs in the value."""
+        mock_stack = MagicMock()
+        mock_stack_class.return_value = mock_stack
+
+        result = runner.invoke(cli, [valid_config_file, '--parameter', 'ConnectionString=host=db;user=admin'])
+
+        call_args = mock_stack_class.call_args
+        params = call_args[0][9]
+        assert params == {'ConnectionString': 'host=db;user=admin'}
+
+    @patch('carica_cfn_tools.cli.Stack')
+    def test_parameter_with_base64_value(self, mock_stack_class, runner, valid_config_file):
+        """Test --parameter with base64-encoded value containing equals padding."""
+        mock_stack = MagicMock()
+        mock_stack_class.return_value = mock_stack
+
+        result = runner.invoke(cli, [valid_config_file, '--parameter', 'EncodedData=SGVsbG8gV29ybGQh'])
+
+        call_args = mock_stack_class.call_args
+        params = call_args[0][9]
+        assert params == {'EncodedData': 'SGVsbG8gV29ybGQh'}
+
+    @patch('carica_cfn_tools.cli.Stack')
+    def test_multiple_tags_with_equals(self, mock_stack_class, runner, valid_config_file):
+        """Test multiple --tag options with equals signs in values."""
+        mock_stack = MagicMock()
+        mock_stack_class.return_value = mock_stack
+
+        result = runner.invoke(
+            cli,
+            [valid_config_file, '--tag', 'eq1=a=b', '--tag', 'eq2=c=d=e'],
+        )
+
+        call_args = mock_stack_class.call_args
+        tags = call_args[0][8]
+        assert tags == {'eq1': 'a=b', 'eq2': 'c=d=e'}
+
+    @patch('carica_cfn_tools.cli.Stack')
+    def test_multiple_parameters_with_equals(self, mock_stack_class, runner, valid_config_file):
+        """Test multiple --parameter options with equals signs in values."""
+        mock_stack = MagicMock()
+        mock_stack_class.return_value = mock_stack
+
+        result = runner.invoke(
+            cli,
+            [valid_config_file, '--parameter', 'Param1=x=y', '--parameter', 'Param2=a=b=c'],
+        )
+
+        call_args = mock_stack_class.call_args
+        params = call_args[0][9]
+        assert params == {'Param1': 'x=y', 'Param2': 'a=b=c'}
+
+    @patch('carica_cfn_tools.cli.Stack')
     def test_verbose_flag(self, mock_stack_class, runner, valid_config_file):
         """Test --verbose flag is passed to Stack constructor."""
         mock_stack = MagicMock()
