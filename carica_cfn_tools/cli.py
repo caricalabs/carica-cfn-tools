@@ -74,6 +74,7 @@ def parse_tags(tags: Iterable[str]) -> dict[str, str]:
     tags_dict = {}
     for tag in tags:
         k, sep, val = tag.partition('=')
+        # Tags must have a non-empty value (the CFN service rejects an empty string)
         if not k or not sep or not val:
             raise BadParameter(f'Tag option value "{tag}" must be formatted like "key=value"')
         tags_dict[k] = val
@@ -84,7 +85,8 @@ def parse_parameters(parameters: Iterable[str]) -> dict[str, str]:
     params_dict = {}
     for param in parameters:
         k, sep, val = param.partition('=')
-        if not k or not sep or not val:
+        # Parameters may have empty values
+        if not k or not sep:
             raise BadParameter(f'Parameter option value "{param}" must be formatted like "key=value"')
         params_dict[k] = val
     return params_dict

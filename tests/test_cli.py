@@ -135,10 +135,10 @@ class TestParseParameters:
         with pytest.raises(BadParameter):
             parse_parameters(['=value'])
 
-    def test_empty_value_raises_error(self):
-        """Test that empty value raises BadParameter."""
-        with pytest.raises(BadParameter):
-            parse_parameters(['key='])
+    def test_empty_value_allowed(self):
+        """Test that empty value is allowed for parameters."""
+        result = parse_parameters(['key='])
+        assert result == {'key': ''}
 
     def test_parameter_with_multiple_equals(self):
         """Test parameter with multiple equals signs in value."""
