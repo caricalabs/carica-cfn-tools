@@ -2,8 +2,6 @@
 Unit tests for carica_cfn_tools.cli module.
 """
 
-import os
-import tempfile
 from unittest.mock import patch, MagicMock
 
 import pytest

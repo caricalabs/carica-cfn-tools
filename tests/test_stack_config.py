@@ -3,13 +3,12 @@ Unit tests for carica_cfn_tools.stack_config module.
 """
 
 import os
-import tempfile
 from collections import OrderedDict
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 
+import botocore.exceptions
 import pytest
 import yaml
-import botocore.exceptions
 
 from carica_cfn_tools.stack_config import (
     Action,
