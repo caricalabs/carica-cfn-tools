@@ -494,6 +494,37 @@ Resources:
         assert params == {'Param1': 'x=y', 'Param2': 'a=b=c'}
 
     @patch('carica_cfn_tools.cli.Stack')
+    def test_no_parameter_option(self, mock_stack_class, runner, valid_config_file):
+        """Test --no-parameter option is passed to Stack constructor."""
+        mock_stack = MagicMock()
+        mock_stack_class.return_value = mock_stack
+
+        result = runner.invoke(
+            cli, [valid_config_file, '--no-parameter', 'ExcludeMe', '--no-parameter', 'AlsoExclude']
+        )
+
+        call_args = mock_stack_class.call_args
+        excluded_params = call_args[0][10]  # excluded_params is position 10 (0-indexed)
+        assert excluded_params == {'ExcludeMe', 'AlsoExclude'}
+
+    @patch('carica_cfn_tools.cli.Stack')
+    def test_parameter_and_no_parameter_together(self, mock_stack_class, runner, valid_config_file):
+        """Test --parameter and --no-parameter can be used together."""
+        mock_stack = MagicMock()
+        mock_stack_class.return_value = mock_stack
+
+        result = runner.invoke(
+            cli,
+            [valid_config_file, '--parameter', 'Keep=value', '--no-parameter', 'Remove'],
+        )
+
+        call_args = mock_stack_class.call_args
+        params = call_args[0][9]
+        excluded_params = call_args[0][10]
+        assert params == {'Keep': 'value'}
+        assert excluded_params == {'Remove'}
+
+    @patch('carica_cfn_tools.cli.Stack')
     def test_verbose_flag(self, mock_stack_class, runner, valid_config_file):
         """Test --verbose flag is passed to Stack constructor."""
         mock_stack = MagicMock()

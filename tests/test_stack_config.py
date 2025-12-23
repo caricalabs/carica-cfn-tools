@@ -347,6 +347,104 @@ Resources:
 
         assert stack.params == {}
 
+    def test_excluded_params_removes_config_params(self, tmp_path):
+        """Test that excluded_params removes parameters from _params_list."""
+        template_path = tmp_path / 'template.yml'
+        template_path.write_text('AWSTemplateFormatVersion: "2010-09-09"\nResources: {}')
+
+        config = {
+            'Region': 'us-east-1',
+            'Bucket': 'my-bucket',
+            'Name': 'TestStack',
+            'Template': 'template.yml',
+            'Parameters': {
+                'Keep': 'keep-value',
+                'Remove': 'remove-value',
+            },
+        }
+        config_path = tmp_path / 'config.yml'
+        config_path.write_text(yaml.dump(config))
+
+        stack = Stack(str(config_path), excluded_params={'Remove'})
+
+        # params dict still contains all params
+        assert stack.params == {'Keep': 'keep-value', 'Remove': 'remove-value'}
+        # but _params_list excludes the removed param
+        params_list = {p['ParameterKey']: p['ParameterValue'] for p in stack._params_list}
+        assert params_list == {'Keep': 'keep-value'}
+        assert 'Remove' not in params_list
+
+    def test_excluded_params_removes_cli_params(self, tmp_path):
+        """Test that excluded_params removes CLI parameters from _params_list."""
+        template_path = tmp_path / 'template.yml'
+        template_path.write_text('AWSTemplateFormatVersion: "2010-09-09"\nResources: {}')
+
+        config = {
+            'Region': 'us-east-1',
+            'Bucket': 'my-bucket',
+            'Name': 'TestStack',
+            'Template': 'template.yml',
+        }
+        config_path = tmp_path / 'config.yml'
+        config_path.write_text(yaml.dump(config))
+
+        stack = Stack(str(config_path), params={'Keep': 'keep', 'Remove': 'remove'}, excluded_params={'Remove'})
+
+        params_list = {p['ParameterKey']: p['ParameterValue'] for p in stack._params_list}
+        assert params_list == {'Keep': 'keep'}
+        assert 'Remove' not in params_list
+
+    def test_excluded_params_overrides_both_config_and_cli(self, tmp_path):
+        """Test that excluded_params removes params from both config and CLI in _params_list."""
+        template_path = tmp_path / 'template.yml'
+        template_path.write_text('AWSTemplateFormatVersion: "2010-09-09"\nResources: {}')
+
+        config = {
+            'Region': 'us-east-1',
+            'Bucket': 'my-bucket',
+            'Name': 'TestStack',
+            'Template': 'template.yml',
+            'Parameters': {
+                'FromConfig': 'config-value',
+                'ExcludeConfig': 'will-be-removed',
+            },
+        }
+        config_path = tmp_path / 'config.yml'
+        config_path.write_text(yaml.dump(config))
+
+        stack = Stack(
+            str(config_path),
+            params={'FromCli': 'cli-value', 'ExcludeCli': 'will-be-removed'},
+            excluded_params={'ExcludeConfig', 'ExcludeCli'},
+        )
+
+        params_list = {p['ParameterKey']: p['ParameterValue'] for p in stack._params_list}
+        assert params_list == {'FromConfig': 'config-value', 'FromCli': 'cli-value'}
+        assert 'ExcludeConfig' not in params_list
+        assert 'ExcludeCli' not in params_list
+
+    def test_excluded_params_nonexistent_is_ignored(self, tmp_path):
+        """Test that excluding a nonexistent parameter doesn't cause errors."""
+        template_path = tmp_path / 'template.yml'
+        template_path.write_text('AWSTemplateFormatVersion: "2010-09-09"\nResources: {}')
+
+        config = {
+            'Region': 'us-east-1',
+            'Bucket': 'my-bucket',
+            'Name': 'TestStack',
+            'Template': 'template.yml',
+            'Parameters': {
+                'Existing': 'value',
+            },
+        }
+        config_path = tmp_path / 'config.yml'
+        config_path.write_text(yaml.dump(config))
+
+        stack = Stack(str(config_path), excluded_params={'NonExistent'})
+
+        params_list = {p['ParameterKey']: p['ParameterValue'] for p in stack._params_list}
+        assert params_list == {'Existing': 'value'}
+
     def test_extras_must_be_list(self, tmp_path):
         """Test that Extras must be a list."""
         template_path = tmp_path / 'template.yml'

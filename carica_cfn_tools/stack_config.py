@@ -59,6 +59,7 @@ class Stack(object):
         verbose=False,
         tags=None,
         params=None,
+        excluded_params=None,
     ):
         self.config_file = config_file
         self.include_templates = include_templates
@@ -66,6 +67,7 @@ class Stack(object):
         self.jinja = jinja
         self.tags = tags or {}
         self.params = params or {}
+        self.excluded_params = excluded_params or set()
         self.verbose = verbose
         self.raw_config = self._load_stack_config(extras, jextras, package_extras)
 
@@ -334,7 +336,7 @@ class Stack(object):
             p_template_data, p_template_type = load_cfn_template(p_template_str)
             return p_template_str, p_template_type, p_template_data
         except CaricaCfnToolsError:
-            print(f'\nPackaging temp directory preserved:', file=sys.stderr)
+            print('\nPackaging temp directory preserved:', file=sys.stderr)
             sys.stderr.flush()
             os.system(f'ls -laR {temp_dir} 1>&2')
             print('\n', file=sys.stderr)
@@ -357,7 +359,7 @@ class Stack(object):
         """
         s3 = boto3.client('s3', region_name=self.region)
 
-        base, ext = os.path.splitext(self.template)
+        _, ext = os.path.splitext(self.template)
         if not ext:
             ext = '.txt'
 
@@ -371,7 +373,7 @@ class Stack(object):
 
         :return: the HTTPS URL to the template file in S3
         """
-        print(f'Loading template...')
+        print('Loading template...')
         template_str, template_type, template_data = self._load_template(self.template)
 
         # Convert from SAM to CFN if desired
@@ -540,7 +542,7 @@ class Stack(object):
                     waiter = cfn.get_waiter('stack_update_complete')
         except botocore.exceptions.ClientError as e:
             if ignore_empty_updates and e.response['Error']['Message'] == 'No updates are to be performed.':
-                print(f'Template contains no changes')
+                print('Template contains no changes')
                 return
 
             raise CaricaCfnToolsError(str(e))
@@ -587,7 +589,7 @@ class Stack(object):
 
     def _run_jinja_on_main_template(self, template_path):
         env = Environment(loader=FileSystemLoader([os.path.dirname(template_path)]))
-        print(f'Processing main template with Jinja')
+        print('Processing main template with Jinja')
         template = env.get_template(os.path.basename(template_path))
         context = {
             # A short string of ASCII chars that is randomly generated for each deployment
@@ -659,7 +661,9 @@ class Stack(object):
 
     @property
     def _params_list(self) -> List[Dict[str, str]]:
-        return [{'ParameterKey': k, 'ParameterValue': v} for k, v in self.params.items()]
+        return [
+            {'ParameterKey': k, 'ParameterValue': v} for k, v in self.params.items() if k not in self.excluded_params
+        ]
 
     def _build_waiter_config(self, wait_timeout) -> dict:
         wait_delay = 5

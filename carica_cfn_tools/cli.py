@@ -67,6 +67,10 @@ PARAM_HELP = (
     'specified multiple times; these values override values set in the Parameters section in '
     'the stack config file'
 )
+NO_PARAM_HELP = (
+    'Exclude this parameter from being sent to CloudFormation; may be specified multiple times; '
+    'overrides parameters defined in the stack config file or via --parameter'
+)
 VERBOSE_HELP = 'Print extra information while processing templates'
 
 
@@ -110,6 +114,7 @@ def parse_parameters(parameters: Iterable[str]) -> dict[str, str]:
 @click.option('--query', '-q', help=QUERY_HELP)
 @click.option('--tag', '-t', help=TAG_HELP, multiple=True)
 @click.option('--parameter', '-p', help=PARAM_HELP, multiple=True)
+@click.option('--no-parameter', '-P', help=NO_PARAM_HELP, multiple=True)
 @click.option('--verbose/--no-verbose', '-v', help=VERBOSE_HELP)
 @click.version_option(version=carica_cfn_tools.version.__version__)
 def cli(
@@ -130,6 +135,7 @@ def cli(
     query,
     tag,
     parameter,
+    no_parameter,
     wait_timeout,
 ):
     """
@@ -145,7 +151,17 @@ def cli(
 
     try:
         stack = Stack(
-            stack_config, include_template, sam_to_cfn, extra, jinja, jextra, package_extra, verbose, tags, params
+            stack_config,
+            include_template,
+            sam_to_cfn,
+            extra,
+            jinja,
+            jextra,
+            package_extra,
+            verbose,
+            tags,
+            params,
+            set(no_parameter),
         )
         if query:
             val = dict_find_path(stack.raw_config, query)
