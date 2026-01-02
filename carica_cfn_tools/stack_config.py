@@ -21,9 +21,17 @@ from jinja2 import Environment, FileSystemLoader
 from samtranslator.translator.managed_policy_translator import ManagedPolicyLoader
 from samtranslator.translator.transform import transform
 
-from carica_cfn_tools.utils import open_url_in_browser, get_s3_https_url, update_dict, \
-    get_cfn_console_url_changeset, copy_dict, load_cfn_template, dump_cfn_template_yaml, \
-    dump_cfn_template_json, get_cfn_console_url_stack
+from carica_cfn_tools.utils import (
+    open_url_in_browser,
+    get_s3_https_url,
+    update_dict,
+    get_cfn_console_url_changeset,
+    copy_dict,
+    load_cfn_template,
+    dump_cfn_template_yaml,
+    dump_cfn_template_json,
+    get_cfn_console_url_stack,
+)
 
 STACK_CAPABILITIES = ['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM', 'CAPABILITY_AUTO_EXPAND']
 
@@ -39,13 +47,27 @@ class CaricaCfnToolsError(Exception):
 
 
 class Stack(object):
-    def __init__(self, config_file, include_templates=None, convert_sam_to_cfn=False, extras=None, jinja=False,
-                 jextras=None, package_extras=None, verbose=False, tags=None):
+    def __init__(
+        self,
+        config_file,
+        include_templates=None,
+        convert_sam_to_cfn=False,
+        extras=None,
+        jinja=False,
+        jextras=None,
+        package_extras=None,
+        verbose=False,
+        tags=None,
+        params=None,
+        excluded_params=None,
+    ):
         self.config_file = config_file
         self.include_templates = include_templates
         self.convert_sam_to_cfn = convert_sam_to_cfn
         self.jinja = jinja
         self.tags = tags or {}
+        self.params = params or {}
+        self.excluded_params = excluded_params or set()
         self.verbose = verbose
         self.raw_config = self._load_stack_config(extras, jextras, package_extras)
 
@@ -62,8 +84,9 @@ class Stack(object):
             config = yaml.load(stream, Loader=yaml.SafeLoader)
             for attr in ['Region', 'Bucket', 'Name', 'Template']:
                 if attr not in config:
-                    raise CaricaCfnToolsError(f'Stack config file "{self.config_file}" '
-                                              f'is missing the required top-level key "{attr}"')
+                    raise CaricaCfnToolsError(
+                        f'Stack config file "{self.config_file}" is missing the required top-level key "{attr}"'
+                    )
             self.region = config['Region']
             self.bucket = config['Bucket']
             self.stack_name = config['Name']
@@ -79,39 +102,47 @@ class Stack(object):
 
             self.template = os.path.join(config_dir, config['Template'])
             if not os.path.isfile(self.template):
-                raise CaricaCfnToolsError(f'Referenced template file "{self.template}" '
-                                          f'does not exist')
+                raise CaricaCfnToolsError(f'Referenced template file "{self.template}" does not exist')
 
             self.extras = config.get('Extras', [])
             if not isinstance(self.extras, list):
-                raise CaricaCfnToolsError('Top-level key "Extras" must be a list of glob patterns '
-                                          '(not a dictionary or other type) if it is present')
+                raise CaricaCfnToolsError(
+                    'Top-level key "Extras" must be a list of glob patterns '
+                    '(not a dictionary or other type) if it is present'
+                )
             if extras:
                 self.extras += extras
 
             self.package_extras = config.get('PackageExtras', [])
             if not isinstance(self.package_extras, list):
-                raise CaricaCfnToolsError('Top-level key "PackageExtras" must be a list of glob patterns '
-                                          '(not a dictionary or other type) if it is present')
+                raise CaricaCfnToolsError(
+                    'Top-level key "PackageExtras" must be a list of glob patterns '
+                    '(not a dictionary or other type) if it is present'
+                )
             if package_extras:
                 self.package_extras += package_extras
 
             self.jextras = config.get('JinjaExtras', [])
             if not isinstance(self.jextras, list):
-                raise CaricaCfnToolsError('Top-level key "JinjaExtras" must be a list of glob patterns '
-                                          '(not a dictionary or other type) if it is present')
+                raise CaricaCfnToolsError(
+                    'Top-level key "JinjaExtras" must be a list of glob patterns '
+                    '(not a dictionary or other type) if it is present'
+                )
             if jextras:
                 self.jextras += jextras
 
             self.jextras_context = config.get('JinjaExtrasContext', {})
             if not isinstance(self.jextras_context, dict):
-                raise CaricaCfnToolsError('Top-level key "JinjaExtrasContext" must be a dictionary '
-                                          '(not a list or other type) if it is present')
+                raise CaricaCfnToolsError(
+                    'Top-level key "JinjaExtrasContext" must be a dictionary '
+                    '(not a list or other type) if it is present'
+                )
 
             params = config.get('Parameters', {})
             if not isinstance(params, dict):
-                raise CaricaCfnToolsError('Top-level key "Parameters" must be a dictionary '
-                                          '(not a list or other type) if it is present')
+                raise CaricaCfnToolsError(
+                    'Top-level key "Parameters" must be a dictionary (not a list or other type) if it is present'
+                )
 
             # Resolve external parameter values
             for name, value in params.items():
@@ -123,12 +154,15 @@ class Stack(object):
 
             def val(v):
                 if v is False:
-                    return "false"
+                    return 'false'
                 if v is True:
-                    return "true"
+                    return 'true'
                 return str(v)
 
-            self.params = [{'ParameterKey': k, 'ParameterValue': val(v)} for k, v in params.items()]
+            # Add params that weren't already defined during initialization
+            for k, v in params.items():
+                if k not in self.params:
+                    self.params[k] = val(v)
 
         return config
 
@@ -183,15 +217,15 @@ class Stack(object):
         # with a match "wins".
         for t_i_key_pattern, t_i_value in list(t_i_resources.items()):
             if not isinstance(t_i_value, dict):
-                raise CaricaCfnToolsError(f'IncludedResources item "{t_i_key_pattern}" must have a '
-                                          'dict value (use {} for empty)')
+                raise CaricaCfnToolsError(
+                    f'IncludedResources item "{t_i_key_pattern}" must have a ' 'dict value (use {} for empty)'
+                )
 
             pat = re.compile(f'^{t_i_key_pattern}$')
             for i_key in i_resources.keys():
                 if pat.match(i_key):
                     if self.verbose:
-                        print(
-                            f'IncludedResources pattern "{pat.pattern}" matches resource "{i_key}"')
+                        print(f'IncludedResources pattern "{pat.pattern}" matches resource "{i_key}"')
                     i_value = i_resources.get(i_key, {})
                     t_resources[i_key] = update_dict(i_value, t_i_value)
                     del t_i_resources[t_i_key_pattern]
@@ -270,17 +304,24 @@ class Stack(object):
             # Invoke the AWS CLI to package artifacts referred to by the template in
             # sections it understands (Lambda deployment archives, etc.).
             with tempfile.NamedTemporaryFile() as output_temporary_file:
-                print(f'Running aws cloudformation package on {temp_template_file_name} '
-                      f'output to {output_temporary_file.name}')
+                print(
+                    f'Running aws cloudformation package on {temp_template_file_name} '
+                    f'output to {output_temporary_file.name}'
+                )
                 args = [
-                    'aws', 'cloudformation', 'package',
-                    '--template-file', temp_template_file_name,
-                    '--s3-bucket', self.bucket,
-                    '--s3-prefix', f'{self.stack_name}/extras',
-                    '--output-template-file', f'{output_temporary_file.name}',
+                    'aws',
+                    'cloudformation',
+                    'package',
+                    '--template-file',
+                    temp_template_file_name,
+                    '--s3-bucket',
+                    self.bucket,
+                    '--s3-prefix',
+                    f'{self.stack_name}/extras',
+                    '--output-template-file',
+                    f'{output_temporary_file.name}',
                 ]
-                proc = subprocess.Popen(args, cwd=temp_dir, stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE)
+                proc = subprocess.Popen(args, cwd=temp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 stdout, stderr = proc.communicate()
 
                 # Read the transformed template.  We have to write it to a file instead of
@@ -295,7 +336,7 @@ class Stack(object):
             p_template_data, p_template_type = load_cfn_template(p_template_str)
             return p_template_str, p_template_type, p_template_data
         except CaricaCfnToolsError:
-            print(f'\nPackaging temp directory preserved:', file=sys.stderr)
+            print('\nPackaging temp directory preserved:', file=sys.stderr)
             sys.stderr.flush()
             os.system(f'ls -laR {temp_dir} 1>&2')
             print('\n', file=sys.stderr)
@@ -318,7 +359,7 @@ class Stack(object):
         """
         s3 = boto3.client('s3', region_name=self.region)
 
-        base, ext = os.path.splitext(self.template)
+        _, ext = os.path.splitext(self.template)
         if not ext:
             ext = '.txt'
 
@@ -332,7 +373,7 @@ class Stack(object):
 
         :return: the HTTPS URL to the template file in S3
         """
-        print(f'Loading template...')
+        print('Loading template...')
         template_str, template_type, template_data = self._load_template(self.template)
 
         # Convert from SAM to CFN if desired
@@ -382,7 +423,8 @@ class Stack(object):
             if len(template_data.get('IncludedResources', {})) > 0:
                 raise CaricaCfnToolsError(
                     'The following IncludedResources did not match a resource in any included '
-                    'templates: ' + ', '.join(template_data['IncludedResources'].keys()))
+                    'templates: ' + ', '.join(template_data['IncludedResources'].keys())
+                )
 
             del template_data['IncludedResources']
 
@@ -415,13 +457,15 @@ class Stack(object):
         # Change set names are quite restrictive (must start with a letter, no colons).
         change_set_name = datetime.datetime.utcnow().strftime('C-%Y-%m-%d-%H%M%SZ')
 
-        args = dict(StackName=self.stack_name,
-                    TemplateURL=template_https_url,
-                    Parameters=self.params,
-                    Capabilities=STACK_CAPABILITIES,
-                    ChangeSetName=change_set_name,
-                    ChangeSetType=change_set_type,
-                    Tags=self._tags_list)
+        args = dict(
+            StackName=self.stack_name,
+            TemplateURL=template_https_url,
+            Parameters=self._params_list,
+            Capabilities=STACK_CAPABILITIES,
+            ChangeSetName=change_set_name,
+            ChangeSetType=change_set_type,
+            Tags=self._tags_list,
+        )
 
         if role_arn:
             args['RoleARN'] = role_arn
@@ -431,13 +475,17 @@ class Stack(object):
 
             if wait:
                 waiter = cfn.get_waiter('change_set_create_complete')
-                waiter.wait(ChangeSetName=change_set_name, StackName=self.stack_name,
-                            WaiterConfig=self._build_waiter_config(wait_timeout))
+                waiter.wait(
+                    ChangeSetName=change_set_name,
+                    StackName=self.stack_name,
+                    WaiterConfig=self._build_waiter_config(wait_timeout),
+                )
         except botocore.exceptions.WaiterError as e:
             # We can discover if the changeset was empty by querying it after the waiter fails.
             response = cfn.describe_change_set(ChangeSetName=change_set_name, StackName=self.stack_name)
             if response['Status'] == 'FAILED' and response['StatusReason'].startswith(
-                    '''The submitted information didn't contain changes.'''):
+                "The submitted information didn't contain changes."
+            ):
                 if ignore_empty_updates:
                     print(f'Change set {change_set_name} contains no changes, deleting')
                     cfn.delete_change_set(ChangeSetName=change_set_name, StackName=self.stack_name)
@@ -463,11 +511,13 @@ class Stack(object):
         waiter = None
         try:
             if action is Action.CREATE or (action is Action.CREATE_OR_UPDATE and not self._stack_exists()):
-                args = dict(StackName=self.stack_name,
-                            TemplateURL=template_https_url,
-                            Parameters=self.params,
-                            Capabilities=STACK_CAPABILITIES,
-                            Tags=self._tags_list)
+                args = dict(
+                    StackName=self.stack_name,
+                    TemplateURL=template_https_url,
+                    Parameters=self._params_list,
+                    Capabilities=STACK_CAPABILITIES,
+                    Tags=self._tags_list,
+                )
 
                 if role_arn:
                     args['RoleARN'] = role_arn
@@ -476,11 +526,13 @@ class Stack(object):
                 if wait:
                     waiter = cfn.get_waiter('stack_create_complete')
             else:
-                args = dict(StackName=self.stack_name,
-                            TemplateURL=template_https_url,
-                            Parameters=self.params,
-                            Capabilities=STACK_CAPABILITIES,
-                            Tags=self._tags_list)
+                args = dict(
+                    StackName=self.stack_name,
+                    TemplateURL=template_https_url,
+                    Parameters=self._params_list,
+                    Capabilities=STACK_CAPABILITIES,
+                    Tags=self._tags_list,
+                )
 
                 if role_arn:
                     args['RoleARN'] = role_arn
@@ -490,7 +542,7 @@ class Stack(object):
                     waiter = cfn.get_waiter('stack_update_complete')
         except botocore.exceptions.ClientError as e:
             if ignore_empty_updates and e.response['Error']['Message'] == 'No updates are to be performed.':
-                print(f'Template contains no changes')
+                print('Template contains no changes')
                 return
 
             raise CaricaCfnToolsError(str(e))
@@ -507,16 +559,14 @@ class Stack(object):
         try:
             return ssm.get_secret_value(SecretId=secret_id)['SecretString']
         except Exception as e:
-            raise CaricaCfnToolsError(f'Failed to read Secrets Manager secret '
-                                      f'"{secret_id}": {str(e)}')
+            raise CaricaCfnToolsError(f'Failed to read Secrets Manager secret ' f'"{secret_id}": {str(e)}')
 
     def _load_parameter_store_value(self, parameter_name):
         ssm = boto3.client('ssm', region_name=self.region)
         try:
             return ssm.get_parameter(Name=parameter_name, WithDecryption=True)['Parameter']['Value']
         except Exception as e:
-            raise CaricaCfnToolsError(f'Failed to read SSM Paramter Store parameter '
-                                      f'"{parameter_name}": {str(e)}')
+            raise CaricaCfnToolsError(f'Failed to read SSM Paramter Store parameter ' f'"{parameter_name}": {str(e)}')
 
     def _normalize_template_format(self, template_data):
         """
@@ -525,8 +575,7 @@ class Stack(object):
         :param template_data: the template data to convert from SAM if convert_sam_to_cfn is enabled
         :return: the normalized template data
         """
-        if self.convert_sam_to_cfn and template_data.get('Transform') \
-                == 'AWS::Serverless-2016-10-31':
+        if self.convert_sam_to_cfn and template_data.get('Transform') == 'AWS::Serverless-2016-10-31':
             # For un-SAM'ing templates
             iam = boto3.client('iam', region_name=self.region)
             managed_policy_loader = ManagedPolicyLoader(iam)
@@ -540,7 +589,7 @@ class Stack(object):
 
     def _run_jinja_on_main_template(self, template_path):
         env = Environment(loader=FileSystemLoader([os.path.dirname(template_path)]))
-        print(f'Processing main template with Jinja')
+        print('Processing main template with Jinja')
         template = env.get_template(os.path.basename(template_path))
         context = {
             # A short string of ASCII chars that is randomly generated for each deployment
@@ -609,6 +658,12 @@ class Stack(object):
     @property
     def _tags_list(self) -> List[Dict[str, str]]:
         return [{'Key': k, 'Value': v} for k, v in self.tags.items()]
+
+    @property
+    def _params_list(self) -> List[Dict[str, str]]:
+        return [
+            {'ParameterKey': k, 'ParameterValue': v} for k, v in self.params.items() if k not in self.excluded_params
+        ]
 
     def _build_waiter_config(self, wait_timeout) -> dict:
         wait_delay = 5

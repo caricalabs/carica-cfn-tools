@@ -1,10 +1,10 @@
-import collections
 import subprocess
+import sys
 import urllib.parse
 from collections import OrderedDict
+from typing import Mapping
 
 import cfn_flip
-import sys
 from cfn_tools import ODict
 
 
@@ -25,8 +25,10 @@ def get_cfn_console_url_changeset(region, stack_arn, change_set_arn):
     quoted_stack_arn = urllib.parse.quote(stack_arn, safe='')
     quoted_change_set_arn = urllib.parse.quote(change_set_arn, safe='')
 
-    return f'https://console.aws.amazon.com/cloudformation/home?region={region}#' \
-           f'/stacks/changesets/changes?stackId={quoted_stack_arn}&changeSetId={quoted_change_set_arn}'
+    return (
+        f'https://console.aws.amazon.com/cloudformation/home?region={region}#'
+        f'/stacks/changesets/changes?stackId={quoted_stack_arn}&changeSetId={quoted_change_set_arn}'
+    )
 
 
 def get_cfn_console_url_stack(region, stack_arn):
@@ -37,8 +39,10 @@ def get_cfn_console_url_stack(region, stack_arn):
     # Must quote with "safe" set to exclude '/' so slashes in the ARNs get escaped as well.
     quoted_stack_arn = urllib.parse.quote(stack_arn, safe='')
 
-    return f'https://console.aws.amazon.com/cloudformation/home?region={region}#' \
-           f'/stacks/stackinfo?stackId={quoted_stack_arn}'
+    return (
+        f'https://console.aws.amazon.com/cloudformation/home?region={region}#'
+        f'/stacks/stackinfo?stackId={quoted_stack_arn}'
+    )
 
 
 def open_url_in_browser(url):
@@ -59,11 +63,11 @@ def update_dict(d, u):
     """
     Updates a dict recursively from another dict.
     """
-    if not isinstance(d, collections.Mapping):
+    if not isinstance(d, Mapping):
         return u
 
     for k, v in u.items():
-        if isinstance(v, collections.Mapping):
+        if isinstance(v, Mapping):
             d[k] = update_dict(d.get(k, {}), v)
         else:
             d[k] = v
@@ -159,9 +163,7 @@ def dump_cfn_template_yaml(template_data, clean_up=False, long_form=False):
     Wrapper around cfn_flip.dump_yaml() that converts the given template data
     to the ODict type it expets.
     """
-    return cfn_flip.dump_yaml(copy_dict(template_data, impl=ODict),
-                              clean_up=clean_up,
-                              long_form=long_form)
+    return cfn_flip.dump_yaml(copy_dict(template_data, impl=ODict), clean_up=clean_up, long_form=long_form)
 
 
 def dump_cfn_template_json(template_data):

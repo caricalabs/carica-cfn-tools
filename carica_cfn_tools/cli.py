@@ -26,26 +26,51 @@ IGNORE_EMPTY_UPDATES_HELP = 'Ignore "No updates are to be performed." errors whe
 WAIT_HELP = 'Wait for creates and updates to finish before exiting'
 WAIT_TIMEOUT_HELP = 'Wait this many seconds when --wait is used (default 3600)'
 ROLE_ARN_HELP = 'Use this value as the RoleARN argument creating or updating stacks and changesets'
-INC_TEMPLATE_HELP = 'Make resources in this SAM or CloudFormation template available for ' \
-                    'inclusion in the stack\'s main template\'s "IncludedResources" section ' \
-                    '(you can use this option multiple times)'
-SAM_TO_CFN_HELP = 'Convert the stack\'s main template and all included templates from SAM to ' \
-                  'CloudFormation before performing inclusions'
-EXTRA_HELP = 'Include files and directories matched by this glob pattern as stack config "Extras" ' \
-             'that gets uploaded to S3 with other dependent resources (you can use this option ' \
-             'multiple times)'
-PACKAGE_EXTRA_HELP = 'Include files and directories matched by this glob pattern as stack config "PackageExtras" ' \
-                     'that get copied into the local temp dir before running `aws cloudformation package`' \
-                     '(you can use this option multiple times)'
-JINJA_HELP = 'Process the SAM or CloudFormation template with the Jinja2 template engine after ' \
-             'included templates are processed (deprecated; use "Jinja" config key instead) '
-JEXTRA_HELP = 'Include files and directories match by this glob pattern like normal "Extras" but ' \
-              'process matched files with the Jinja2 template engine before uploading'
-QUERY_HELP = 'Print the value of the specified stack config key to stdout; use dot path notation ' \
-             'like "Parameters.SomeParameter"; (does not create or modify any stacks)'
-TAG_HELP = 'Set this tag on the CloudFormation stack (format like "key=value"); may be ' \
-           'specified multiple times; these values override values set in the Tag section in ' \
-           'the stack config file'
+INC_TEMPLATE_HELP = (
+    'Make resources in this SAM or CloudFormation template available for '
+    'inclusion in the stack\'s main template\'s "IncludedResources" section '
+    '(you can use this option multiple times)'
+)
+SAM_TO_CFN_HELP = (
+    'Convert the stack\'s main template and all included templates from SAM to '
+    'CloudFormation before performing inclusions'
+)
+EXTRA_HELP = (
+    'Include files and directories matched by this glob pattern as stack config "Extras" '
+    'that gets uploaded to S3 with other dependent resources (you can use this option '
+    'multiple times)'
+)
+PACKAGE_EXTRA_HELP = (
+    'Include files and directories matched by this glob pattern as stack config "PackageExtras" '
+    'that get copied into the local temp dir before running `aws cloudformation package`'
+    '(you can use this option multiple times)'
+)
+JINJA_HELP = (
+    'Process the SAM or CloudFormation template with the Jinja2 template engine after '
+    'included templates are processed (deprecated; use "Jinja" config key instead) '
+)
+JEXTRA_HELP = (
+    'Include files and directories match by this glob pattern like normal "Extras" but '
+    'process matched files with the Jinja2 template engine before uploading'
+)
+QUERY_HELP = (
+    'Print the value of the specified stack config key to stdout; use dot path notation '
+    'like "Parameters.SomeParameter"; (does not create or modify any stacks)'
+)
+TAG_HELP = (
+    'Set this tag on the CloudFormation stack (format like "key=value"); may be '
+    'specified multiple times; these values override values set in the Tag section in '
+    'the stack config file'
+)
+PARAM_HELP = (
+    'Set this parameter on the CloudFormation stack (format like "key=value"); may be '
+    'specified multiple times; these values override values set in the Parameters section in '
+    'the stack config file'
+)
+NO_PARAM_HELP = (
+    'Exclude this parameter from being sent to CloudFormation; may be specified multiple times; '
+    'overrides parameters defined in the stack config file or via --parameter'
+)
 VERBOSE_HELP = 'Print extra information while processing templates'
 
 
@@ -53,10 +78,22 @@ def parse_tags(tags: Iterable[str]) -> dict[str, str]:
     tags_dict = {}
     for tag in tags:
         k, sep, val = tag.partition('=')
+        # Tags must have a non-empty value (the CFN service rejects an empty string)
         if not k or not sep or not val:
             raise BadParameter(f'Tag option value "{tag}" must be formatted like "key=value"')
         tags_dict[k] = val
     return tags_dict
+
+
+def parse_parameters(parameters: Iterable[str]) -> dict[str, str]:
+    params_dict = {}
+    for param in parameters:
+        k, sep, val = param.partition('=')
+        # Parameters may have empty values
+        if not k or not sep:
+            raise BadParameter(f'Parameter option value "{param}" must be formatted like "key=value"')
+        params_dict[k] = val
+    return params_dict
 
 
 @click.command()
@@ -76,22 +113,56 @@ def parse_tags(tags: Iterable[str]) -> dict[str, str]:
 @click.option('--jextra', '-j', multiple=True, help=JEXTRA_HELP)
 @click.option('--query', '-q', help=QUERY_HELP)
 @click.option('--tag', '-t', help=TAG_HELP, multiple=True)
+@click.option('--parameter', '-p', help=PARAM_HELP, multiple=True)
+@click.option('--no-parameter', '-P', help=NO_PARAM_HELP, multiple=True)
 @click.option('--verbose/--no-verbose', '-v', help=VERBOSE_HELP)
 @click.version_option(version=carica_cfn_tools.version.__version__)
-def cli(stack_config, action, browser, direct, ignore_empty_updates, wait, role_arn, include_template, sam_to_cfn,
-        verbose, extra, jinja, jextra, package_extra, query, tag, wait_timeout):
+def cli(
+    stack_config,
+    action,
+    browser,
+    direct,
+    ignore_empty_updates,
+    wait,
+    role_arn,
+    include_template,
+    sam_to_cfn,
+    verbose,
+    extra,
+    jinja,
+    jextra,
+    package_extra,
+    query,
+    tag,
+    parameter,
+    no_parameter,
+    wait_timeout,
+):
     """
     Create or update the CloudFormation stack specified in STACK_CONFIG.
     """
     # Parse arguments.
     tags = parse_tags(tag)
+    params = parse_parameters(parameter)
     if wait_timeout:
         wait_timeout = int(wait_timeout)
     else:
         wait_timeout = 3600
 
     try:
-        stack = Stack(stack_config, include_template, sam_to_cfn, extra, jinja, jextra, package_extra, verbose, tags)
+        stack = Stack(
+            stack_config,
+            include_template,
+            sam_to_cfn,
+            extra,
+            jinja,
+            jextra,
+            package_extra,
+            verbose,
+            tags,
+            params,
+            set(no_parameter),
+        )
         if query:
             val = dict_find_path(stack.raw_config, query)
             if not val:
