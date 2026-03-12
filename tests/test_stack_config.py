@@ -1036,6 +1036,46 @@ class TestStackApplyChangeSet:
         call_kwargs = mock_cfn.create_change_set.call_args[1]
         assert call_kwargs['RoleARN'] == role_arn
 
+    @patch('carica_cfn_tools.stack_config.boto3.client')
+    @patch.object(Stack, '_publish')
+    @patch.object(Stack, '_stack_exists')
+    def test_apply_change_set_import_existing(self, mock_exists, mock_publish, mock_boto_client, stack):
+        """Test change set with import_existing flag."""
+        mock_publish.return_value = 'https://s3.amazonaws.com/bucket/template.yml'
+        mock_exists.return_value = False
+
+        mock_cfn = MagicMock()
+        mock_cfn.create_change_set.return_value = {'Id': 'changeset-arn', 'StackId': 'stack-arn'}
+        mock_boto_client.return_value = mock_cfn
+
+        stack.apply_change_set(
+            Action.CREATE, browser=False, wait=False, wait_timeout=3600,
+            ignore_empty_updates=False, role_arn=None, import_existing=True,
+        )
+
+        call_kwargs = mock_cfn.create_change_set.call_args[1]
+        assert call_kwargs['ImportExistingResources'] is True
+
+    @patch('carica_cfn_tools.stack_config.boto3.client')
+    @patch.object(Stack, '_publish')
+    @patch.object(Stack, '_stack_exists')
+    def test_apply_change_set_no_import_existing_by_default(self, mock_exists, mock_publish, mock_boto_client, stack):
+        """Test change set does not include ImportExistingResources by default."""
+        mock_publish.return_value = 'https://s3.amazonaws.com/bucket/template.yml'
+        mock_exists.return_value = False
+
+        mock_cfn = MagicMock()
+        mock_cfn.create_change_set.return_value = {'Id': 'changeset-arn', 'StackId': 'stack-arn'}
+        mock_boto_client.return_value = mock_cfn
+
+        stack.apply_change_set(
+            Action.CREATE_OR_UPDATE, browser=False, wait=False, wait_timeout=3600,
+            ignore_empty_updates=False, role_arn=None,
+        )
+
+        call_kwargs = mock_cfn.create_change_set.call_args[1]
+        assert 'ImportExistingResources' not in call_kwargs
+
     @patch('carica_cfn_tools.stack_config.open_url_in_browser')
     @patch('carica_cfn_tools.stack_config.boto3.client')
     @patch.object(Stack, '_publish')

@@ -72,6 +72,7 @@ NO_PARAM_HELP = (
     'overrides parameters defined in the stack config file or via --parameter'
 )
 VERBOSE_HELP = 'Print extra information while processing templates'
+IMPORT_EXISTING_HELP = 'Automatically import existing resources into the stack; does not work with --direct'
 
 
 def parse_tags(tags: Iterable[str]) -> dict[str, str]:
@@ -116,6 +117,7 @@ def parse_parameters(parameters: Iterable[str]) -> dict[str, str]:
 @click.option('--parameter', '-p', help=PARAM_HELP, multiple=True)
 @click.option('--no-parameter', '-P', help=NO_PARAM_HELP, multiple=True)
 @click.option('--verbose/--no-verbose', '-v', help=VERBOSE_HELP)
+@click.option('--import-existing/--no-import-existing', '-I', default=False, help=IMPORT_EXISTING_HELP)
 @click.version_option(version=carica_cfn_tools.version.__version__)
 def cli(
     stack_config,
@@ -137,6 +139,7 @@ def cli(
     parameter,
     no_parameter,
     wait_timeout,
+    import_existing,
 ):
     """
     Create or update the CloudFormation stack specified in STACK_CONFIG.
@@ -172,7 +175,8 @@ def cli(
         elif direct:
             stack.apply_stack(action, browser, wait, wait_timeout, ignore_empty_updates, role_arn)
         else:
-            stack.apply_change_set(action, browser, wait, wait_timeout, ignore_empty_updates, role_arn)
+            stack.apply_change_set(action, browser, wait, wait_timeout, ignore_empty_updates, role_arn,
+                                   import_existing)
     except CaricaCfnToolsError as e:
         print('ERROR: ' + str(e), file=sys.stderr)
         sys.exit(1)
