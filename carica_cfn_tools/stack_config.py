@@ -443,7 +443,8 @@ class Stack(object):
         # Return the full HTTPS URL to the template in the S3 bucket
         return get_s3_https_url(self.region, self.bucket, template_key)
 
-    def apply_change_set(self, action, browser, wait, wait_timeout, ignore_empty_updates, role_arn):
+    def apply_change_set(self, action, browser, wait, wait_timeout, ignore_empty_updates, role_arn,
+                         import_existing=False):
         template_https_url = self._publish()
         cfn = boto3.client('cloudformation', region_name=self.region)
         cfn.validate_template(TemplateURL=template_https_url)
@@ -469,6 +470,9 @@ class Stack(object):
 
         if role_arn:
             args['RoleARN'] = role_arn
+
+        if import_existing:
+            args['ImportExistingResources'] = True
 
         try:
             response = cfn.create_change_set(**args)

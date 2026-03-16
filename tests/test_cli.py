@@ -348,6 +348,28 @@ Resources:
         assert call_args[0][5] == role_arn  # role_arn argument
 
     @patch('carica_cfn_tools.cli.Stack')
+    def test_import_existing_flag(self, mock_stack_class, runner, valid_config_file):
+        """Test --import-existing flag is passed through."""
+        mock_stack = MagicMock()
+        mock_stack_class.return_value = mock_stack
+
+        result = runner.invoke(cli, [valid_config_file, '--import-existing'])
+
+        call_args = mock_stack.apply_change_set.call_args
+        assert call_args[0][6] is True  # import_existing argument
+
+    @patch('carica_cfn_tools.cli.Stack')
+    def test_import_existing_default_false(self, mock_stack_class, runner, valid_config_file):
+        """Test --import-existing defaults to False."""
+        mock_stack = MagicMock()
+        mock_stack_class.return_value = mock_stack
+
+        result = runner.invoke(cli, [valid_config_file])
+
+        call_args = mock_stack.apply_change_set.call_args
+        assert call_args[0][6] is False  # import_existing argument
+
+    @patch('carica_cfn_tools.cli.Stack')
     def test_include_template_option(self, mock_stack_class, runner, valid_config_file):
         """Test --include-template option is passed to Stack constructor."""
         mock_stack = MagicMock()
